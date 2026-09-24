@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=16';
+import * as P from './pose.js?v=17';
 
 let hebVoice = null;
 function pickVoice() {
@@ -74,10 +74,16 @@ const SIGHT_LINES = {
   too_far: ['התקרב — המצלמה צריכה לראות את כף הרגל מקרוב', 'עוד קצת קדימה, שכף הרגל תמלא את הפריים'],
 };
 class SightCoach {
-  constructor(ui) { this.ui = ui; this.lastReason = null; this.lastSpokeAt = 0; }
+  constructor(ui) { this.ui = ui; this.lastReason = null; this.lastSpokeAt = 0; this.hist = []; }
   feed(diag) {
     const now = Date.now();
-    if (diag.ok) { this.lastReason = null; return true; }
+    // majority vote over the last 12 frames: a momentary tracking flicker
+    // must not reset the sync or trigger a nag
+    this.hist.push(diag.ok ? 1 : 0);
+    if (this.hist.length > 12) this.hist.shift();
+    const okRatio = this.hist.reduce((a, b) => a + b, 0) / this.hist.length;
+    if (okRatio >= 0.5) { this.lastReason = null; return true; }
+    if (diag.ok) return false; // bad majority but this frame fine — stay quiet
     const changed = diag.reason !== this.lastReason;
     if (changed || now - this.lastSpokeAt > 5000) {
       const lines = SIGHT_LINES[diag.reason] || SIGHT_LINES.no_person;

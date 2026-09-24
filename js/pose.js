@@ -137,7 +137,7 @@ export function diagnose(lms, { profile = false } = {}) {
   const chain = side => {
     const [k, a, h] = side === 'R'
       ? [LM.R_KNEE, LM.R_ANKLE, LM.R_HEEL] : [LM.L_KNEE, LM.L_ANKLE, LM.L_HEEL];
-    return vis(k) > 0.4 && vis(a) > 0.4 && vis(h) > 0.3;
+    return vis(k) > 0.3 && vis(a) > 0.3 && vis(h) > 0.2;
   };
   const chains = (chain('R') ? 1 : 0) + (chain('L') ? 1 : 0);
   const need = profile ? 1 : 2;         // profile: one leg occludes the other
@@ -164,7 +164,7 @@ export function archDiagnose(lms) {
     const [k, a, h, t] = s === 'R'
       ? [LM.R_KNEE, LM.R_ANKLE, LM.R_HEEL, LM.R_TOE]
       : [LM.L_KNEE, LM.L_ANKLE, LM.L_HEEL, LM.L_TOE];
-    return vis(k) > 0.35 && vis(a) > 0.4 && vis(h) > 0.3 && vis(t) > 0.3 ? { h, t } : null;
+    return vis(k) > 0.25 && vis(a) > 0.3 && vis(h) > 0.2 && vis(t) > 0.2 ? { h, t } : null;
   };
   const leg = side('R') || side('L');
   if (!leg) return { ok: false, reason: 'legs_hidden' };
@@ -217,4 +217,11 @@ export function legScale(lms) {
   const r = Math.hypot(lms[LM.R_HIP].x - lms[LM.R_HEEL].x, lms[LM.R_HIP].y - lms[LM.R_HEEL].y);
   const s = (l + r) / 2;
   return s > 1e-3 ? s : null;
+}
+
+// Compact per-joint confidence readout for the on-screen debug line.
+export function visReport(lms) {
+  if (!lms) return 'no person';
+  const v = i => (lms[i].visibility ?? 1).toFixed(2);
+  return `knee ${v(LM.R_KNEE)}/${v(LM.L_KNEE)} ankle ${v(LM.R_ANKLE)}/${v(LM.L_ANKLE)} heel ${v(LM.R_HEEL)}/${v(LM.L_HEEL)}`;
 }
