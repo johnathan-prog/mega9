@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=13';
+import * as P from './pose.js?v=14';
 
 let hebVoice = null;
 function pickVoice() {
@@ -137,6 +137,12 @@ export class WalkScan {
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.faceFrames = 0;
+    // Whether face landmarks were EVER reliably seen while the user faced
+    // the camera. At 3-4m from an ankle-height camera the face can be too
+    // small to detect at all — then "no face" does NOT mean "back turned",
+    // and orientation must fall back to giving the user real time to turn.
+    this.faceSeen = false;
+    this.entryScale = null; this.settleUntil = 0;
     this.counter = new StepCounter();
     this.coach = new SightCoach(ui);
     this.ui.instr('עמוד מול המצלמה');
@@ -176,28 +182,43 @@ export class WalkScan {
         break;
       case 'SYNC':
         if (diag.ok && lms) this.sampleAngles(lms);
+        if (lms && P.facing(lms) === 'front') this.faceSeen = true;
         if (this.sinceMs() > 1000 && speechIdle()) {
           this.faceFrames = 0;
           this.setState('TURN_BACK', 'הסתובב — גב למצלמה', 'עכשיו הסתובב, גב למצלמה');
         }
         break;
-      case 'TURN_BACK':
-        // wait until the camera actually SEES the back (no face landmarks)
-        if (lms && P.facing(lms) === 'back') this.faceFrames++;
-        else this.faceFrames = 0;
-        if (this.faceFrames >= 8 && speechIdle()) {
-          this.walkBase = null; this.reminded = false; this.counter.reset();
+      case 'TURN_BACK': {
+        // Orientation is trusted only if the face was actually detectable
+        // facing the camera; otherwise "no face" proves nothing and the
+        // user simply gets real time to complete the turn.
+        let turned;
+        if (this.faceSeen) {
+          if (lms && P.facing(lms) === 'back') this.faceFrames++;
+          else this.faceFrames = 0;
+          turned = this.faceFrames >= 8;
+        } else turned = this.sinceMs() > 4000;
+        if (turned && speechIdle()) {
+          this.reminded = false; this.counter.reset();
+          this.entryScale = null; this.settleUntil = Date.now() + 1500;
           this.setState('WALK_AWAY', 'קח 5 צעדים קדימה', 'יופי. קח חמישה צעדים קדימה, אני סופר איתך');
-        } else if (this.sinceMs() > 7000 && speechIdle()) {
-          say('אני עדיין רואה אותך מקדימה — הסתובב, גב למצלמה', { force: true });
+        } else if (this.sinceMs() > 9000 && speechIdle()) {
+          say('הסתובב, גב למצלמה', { force: true });
           this.stateSince = Date.now();
         }
         break;
+      }
       case 'WALK_AWAY': {
-        // real detection: count five actual steps, spoken as they land
+        // count five actual steps — but only once the turn has settled and
+        // only while the walker is genuinely receding (leg scale shrinking),
+        // so turn jitter can never be counted as steps.
         if (!diag.ok && diag.reason === 'no_person')
           this.coach.feed(diag); // walked out of frame — call it out
-        if (lms && this.counter.feed(lms)) {
+        const scale = lms ? P.legScale(lms) : null;
+        if (scale && Date.now() < this.settleUntil) {
+          this.entryScale = Math.max(this.entryScale ?? 0, scale);
+        } else if (lms && scale && this.entryScale &&
+                   scale < this.entryScale * 0.985 && this.counter.feed(lms)) {
           const n = this.counter.steps;
           say(HEB_COUNT[n - 1] || String(n), { force: true });
         }
@@ -207,7 +228,7 @@ export class WalkScan {
           this.setState('STOP', 'עצור', null);
           break;
         }
-        if (!this.reminded && this.sinceMs() > 5000 && this.counter.steps === 0) {
+        if (!this.reminded && this.sinceMs() > 6000 && this.counter.steps === 0) {
           this.reminded = true;
           say('לך קדימה, תתרחק מהמצלמה', { force: true });
         }
@@ -221,26 +242,38 @@ export class WalkScan {
         if (this.sinceMs() > 1200 && speechIdle())
           this.setState('TURN_FACE', 'הסתובב — פנים למצלמה', 'עכשיו הסתובב, פנים למצלמה');
         break;
-      case 'TURN_FACE':
-        // wait until the camera actually SEES the face again
-        if (lms && P.facing(lms) === 'front') this.faceFrames++;
-        else this.faceFrames = 0;
-        if (this.faceFrames >= 8 && speechIdle()) {
-          this.walkBase = null; this.reminded = false; this.counter.reset();
+      case 'TURN_FACE': {
+        // The walker is far now, so the face may be undetectable even when
+        // they have turned — trust it only if it was detectable before.
+        let turned;
+        if (this.faceSeen) {
+          if (lms && P.facing(lms) === 'front') this.faceFrames++;
+          else this.faceFrames = 0;
+          turned = this.faceFrames >= 8;
+        } else turned = this.sinceMs() > 4000;
+        if (turned && speechIdle()) {
+          this.reminded = false; this.counter.reset();
+          this.entryScale = null; this.settleUntil = Date.now() + 1500;
           this.setState('WALK_TOWARD', 'קח 5 צעדים אל המצלמה', 'יופי. עכשיו קח חמישה צעדים ישר אל המצלמה, אני סופר איתך');
-        } else if (this.sinceMs() > 7000 && speechIdle()) {
-          say('הסתובב אליי — אני עדיין לא רואה את הפנים שלך', { force: true });
+        } else if (this.sinceMs() > 9000 && speechIdle()) {
+          say('הסתובב — פנים למצלמה', { force: true });
           this.stateSince = Date.now();
         }
         break;
+      }
       case 'WALK_TOWARD': {
         if (lms && diag.ok) this.sampleAngles(lms);
-        if (lms && this.counter.feed(lms)) {
+        // count only while genuinely approaching (leg scale growing)
+        const scale = lms ? P.legScale(lms) : null;
+        if (scale && Date.now() < this.settleUntil) {
+          this.entryScale = Math.min(this.entryScale ?? Infinity, scale);
+        } else if (lms && scale && this.entryScale &&
+                   scale > this.entryScale * 1.015 && this.counter.feed(lms)) {
           const n = this.counter.steps;
           say(HEB_COUNT[n - 1] || String(n), { force: true });
         }
         this.ui.instr(`צעד ${Math.min(this.counter.steps, 5)} מתוך 5`);
-        if (!this.reminded && this.sinceMs() > 5000 && this.counter.steps === 0) {
+        if (!this.reminded && this.sinceMs() > 6000 && this.counter.steps === 0) {
           this.reminded = true;
           say('המשך ללכת ישר אל המצלמה', { force: true });
         }
@@ -291,12 +324,34 @@ export class ArchTest {
     this.holdMs = holdMs; this.ui = ui;
     this.state = 'FIND';
     this.baseline = []; this.loaded = [];
+    this.floorSamples = []; this.floorY = null;
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.coach = new SightCoach(ui);
     this.name = side === 'R' ? 'ימין' : 'שמאל';
     this.otherName = side === 'R' ? 'שמאל' : 'ימין';
     this.ui.instr('התקרב — שכף הרגל והקרסול ימלאו את הפריים');
+  }
+  // Lift detection anchored to the FLOOR LINE recorded during the two-leg
+  // baseline — no hips (out of frame in close-up), no depth guessing.
+  // Returns the LABEL of the lifted foot ('R'/'L'), or null if none:
+  // one heel must rise clearly above the floor line while the other
+  // stays planted on it.
+  liftedLabel(lms) {
+    if (this.floorY == null) return null;
+    const foot = s => {
+      const h = lms[s === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL];
+      const t = lms[s === 'R' ? P.LM.R_TOE : P.LM.L_TOE];
+      return { heelY: h.y, len: Math.hypot(t.x - h.x, t.y - h.y) };
+    };
+    const R = foot('R'), L = foot('L');
+    const ref = Math.max(R.len, L.len);
+    if (ref < 1e-3) return null;
+    const up = s => (this.floorY - s.heelY) / ref;     // heel height above floor, in foot-lengths
+    const rUp = up(R), lUp = up(L);
+    if (rUp > 0.45 && lUp < 0.2) return 'R';
+    if (lUp > 0.45 && rUp < 0.2) return 'L';
+    return null;
   }
   setState(s) { this.state = s; this.stateSince = Date.now(); }
   sinceMs() { return Date.now() - this.stateSince; }
@@ -330,9 +385,16 @@ export class ArchTest {
           this.stateSince = Date.now();
           break;
         }
-        const arch = P.archHeight(lms, P.standingSide(lms));
-        if (arch != null) this.baseline.push(arch);
-        if (this.baseline.length > 30 && this.sinceMs() > 2500 && speechIdle()) {
+        // two-leg baseline: record the floor line (highest heel y) and the
+        // unloaded arch height of BOTH feet — both are grounded now
+        this.floorSamples.push(Math.max(lms[P.LM.R_HEEL].y, lms[P.LM.L_HEEL].y));
+        for (const s of ['R', 'L']) {
+          const a = P.archHeight(lms, s);
+          if (a != null) this.baseline.push(a);
+        }
+        if (this.baseline.length > 60 && this.sinceMs() > 2500 && speechIdle()) {
+          const fs = [...this.floorSamples].sort((x, y) => x - y);
+          this.floorY = fs[Math.floor(fs.length / 2)];
           this.setState('LIFT');
           this.ui.instr(`הרם את רגל ${this.otherName} — הרגל הקרובה למצלמה`);
           say(`עכשיו הרם את רגל ${this.otherName}, הרגל הקרובה למצלמה, ועמוד על רגל ${this.name} בלבד`, { force: true });
@@ -341,7 +403,7 @@ export class ArchTest {
       }
       case 'LIFT':
         if (!lms) break;
-        if (P.legLifted(lms) && speechIdle()) {
+        if (this.liftedLabel(lms) && speechIdle()) {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
         } else if (this.sinceMs() > 7000) {
@@ -351,12 +413,15 @@ export class ArchTest {
         break;
       case 'HOLD': {
         if (!lms) break;
-        if (!P.legLifted(lms)) { // foot came down — restart the hold
+        const lifted = this.liftedLabel(lms);
+        if (!lifted) { // foot came down — restart the hold
           this.setState('LIFT');
           this.ui.instr(`הרם את רגל ${this.otherName} והחזק`);
           break;
         }
-        const arch = P.archHeight(lms, P.standingSide(lms));
+        // measure the STANDING foot — the one still on the floor line —
+        // whose medial arch faces the camera
+        const arch = P.archHeight(lms, lifted === 'R' ? 'L' : 'R');
         if (arch != null) this.loaded.push(arch);
         const left = Math.ceil((this.holdMs - this.sinceMs()) / 1000);
         this.ui.instr(left > 0 ? String(left) : '✓');
