@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=25';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=25';
-import { classify, LOGIC_LINE } from './engine.js?v=25';
+import * as P from './pose.js?v=26';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=26';
+import { classify, LOGIC_LINE } from './engine.js?v=26';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -79,7 +79,7 @@ const STAGES = [
   { key: 'walk', title: 'סריקת הליכה · גובה קרסול',
     sub: 'המצלמה עוקבת אחרי גיד אכילס, העקב וציר הברך בזמן הליכה.',
     steps: ['הנח את הטלפון יציב בגובה הקרסול (נשען על משהו), מסך אליך',
-            'התרחק יחף, במכנסיים קצרים או מופשלים, עד שרואים אותך מהרצפה עד המותן',
+            'התרחק כ־3 מטרים, יחף, במכנסיים קצרים — כל הגוף צריך להיכנס לפריים',
             'פשוט תלך הלוך ושוב טבעי כ־20 שניות — ההקלטה מנותחת אוטומטית, מחזורי הליכה נקיים בלבד'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',

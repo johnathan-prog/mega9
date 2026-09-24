@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=25';
+import * as P from './posemath.js?v=26';
 
 let hebVoice = null;
 function pickVoice() {
@@ -70,6 +70,7 @@ export function speechIdle() { return speech.idle(); }
 // only speaks when the situation changes (or persists too long).
 const SIGHT_LINES = {
   no_person: ['לא רואים אותך — היכנס לפריים', 'אני לא רואה אותך. עמוד מול המצלמה'],
+  too_close: ['אתה קרוב מדי — קח שניים־שלושה צעדים אחורה', 'התרחק מהטלפון עד שכל הגוף בפריים'],
   legs_hidden: ['התרחק מעט — צריך לראות את הרגליים עד הרצפה', 'עוד קצת אחורה, שאראה את הרגליים שלך במלואן'],
   feet_cut: ['כפות הרגליים נחתכות — התרחק צעד או הטה את הטלפון מעט למטה', 'לא רואים את כפות הרגליים. צעד אחורה'],
   too_far: ['התקרב — המצלמה צריכה לראות את כף הרגל מקרוב', 'עוד קצת קדימה, שכף הרגל תמלא את הפריים'],
@@ -131,7 +132,7 @@ export class WalkScan {
     this.visibleSince = 0;
     this.presence = new Presence();
     this.coach = new SightCoach(ui);
-    this.ui.instr('עמוד מול המצלמה');
+    this.ui.instr('עמוד מול המצלמה, במרחק כ־3 מטרים');
   }
   setState(st, instr, speak) {
     if (this.state !== st) {
@@ -151,8 +152,17 @@ export class WalkScan {
     }
     return 1;
   }
+  lostReason(lms) {
+    if (lms) return null;
+    const recently = Date.now() - (this.lastSeenAt || 0) < 2500;
+    return recently && (this.lastScale || 0) > 0.6 ? 'too_close' : 'no_person';
+  }
   frame(lms) {
     const diag = P.diagnose(lms);
+    if (lms) {
+      const sc = P.legScale(lms);
+      if (sc) { this.lastScale = sc; this.lastSeenAt = Date.now(); }
+    }
     switch (this.state) {
       case 'FIND': {
         // sticky presence of the FULL lower body (floor-to-waist), not of
@@ -171,7 +181,7 @@ export class WalkScan {
           this.visibleSince = 0;
           // coach with the REAL reason: a close-up face gets "step back",
           // an empty frame gets "I can't see you"
-          this.coach.feed(lms ? diag : { ok: false, reason: 'no_person' });
+          this.coach.feed(lms ? diag : { ok: false, reason: this.lostReason(lms) });
         }
         break;
       }
@@ -179,7 +189,7 @@ export class WalkScan {
         if (this.sinceMs() > 800 && speechIdle()) {
           this.t0 = Date.now();
           this.setState('RECORD', 'לך הלוך ושוב, טבעי, עד שאגיד עצור',
-            'עכשיו פשוט לך הלוך ושוב לאורך החדר, בקצב טבעי שלך. אל תסתכל על הטלפון — אני מקליט ואגיד לך מתי לעצור');
+            'עכשיו פשוט לך הלוך ושוב לאורך החדר בקצב טבעי. כשאתה מתקרב לטלפון — הסתובב וחזור. אני מקליט ואגיד מתי לעצור');
         }
         break;
       case 'RECORD': {
@@ -198,8 +208,17 @@ export class WalkScan {
           this.pausedMs += now - (this.lastTick || now);
           if (now - this.lastNagAt > 8000) {
             this.lastNagAt = now;
-            say(lms ? 'אני לא רואה תנועה — לך הלוך ושוב בבקשה' : 'אני לא רואה אותך — חזור לפריים והמשך ללכת', { force: true });
+            const line = !lms
+              ? (this.lostReason(lms) === 'too_close'
+                  ? 'התקרבת יותר מדי — הסתובב כאן וחזור'
+                  : 'אני לא רואה אותך — חזור לפריים והמשך ללכת')
+              : 'אני לא רואה תנועה — לך הלוך ושוב בבקשה';
+            say(line, { force: true });
           }
+        } else if (scl && scl > 0.8 && now - (this.lastTurnCueAt || 0) > 6000) {
+          // sight-driven turn cue BEFORE tracking is lost
+          this.lastTurnCueAt = now;
+          say('מספיק קרוב — הסתובב כאן וחזור', { force: true });
         } else if (lms && diag.ok) {
           this.rec.push({
             t: now - this.t0 - this.pausedMs,
@@ -377,7 +396,7 @@ export class ArchTest {
           }
         } else {
           this.visibleSince = 0;
-          this.coach.feed(lms ? diag : { ok: false, reason: 'no_person' });
+          this.coach.feed(lms ? diag : { ok: false, reason: this.lostReason(lms) });
         }
         break;
       case 'PROFILE': {
