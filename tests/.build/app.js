@@ -152,7 +152,7 @@ async function runStage(st) {
         const now = performance.now();
         const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
         machine._dbgT = now;
-        $('dbgLine').textContent = `${fps}fps · ${P.visReport(lms)}`;
+        $('dbgLine').textContent = `v27 · ${fps}fps · ${P.visReport(lms)}`;
       }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
