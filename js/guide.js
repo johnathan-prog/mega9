@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=8';
+import * as P from './pose.js?v=9';
 
 let hebVoice = null;
 function pickVoice() {
@@ -26,18 +26,42 @@ export function primeTTS() {
   } catch { /* no TTS — screen text still guides */ }
 }
 
-let lastSpoken = '', lastSpokenAt = 0;
-export function say(text, { force = false } = {}) {
-  const now = Date.now();
-  if (!force && text === lastSpoken && now - lastSpokenAt < 6000) return;
-  lastSpoken = text; lastSpokenAt = now;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'he-IL'; u.rate = 1.05; if (hebVoice) u.voice = hebVoice;
-    speechSynthesis.speak(u);
-  } catch { /* TTS unavailable */ }
+/* ---------- speech engine ----------
+   A queue, not a trigger. Instructions play to completion and queue up;
+   only an URGENT line (a correction, "stop") interrupts mid-utterance.
+   State machines gate their transitions on speechIdle() so the guide
+   never talks over itself — this is what makes the voice calm. */
+const speech = {
+  q: [], speaking: false, lastText: '', lastAt: 0,
+  idle() { return !this.speaking && this.q.length === 0; },
+  say(text, { urgent = false, dedupeMs = 6000 } = {}) {
+    const now = Date.now();
+    if (text === this.lastText && now - this.lastAt < dedupeMs) return;
+    if (urgent) { this.q.length = 0; try { speechSynthesis.cancel(); } catch {} this.speaking = false; }
+    this.q.push(text);
+    this._drain();
+  },
+  _drain() {
+    if (this.speaking || !this.q.length) return;
+    const text = this.q.shift();
+    this.lastText = text; this.lastAt = Date.now();
+    this.speaking = true;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'he-IL'; u.rate = 1.02; if (hebVoice) u.voice = hebVoice;
+      const done = () => { this.speaking = false; setTimeout(() => this._drain(), 300); };
+      u.onend = done; u.onerror = done;
+      speechSynthesis.speak(u);
+      // watchdog: some mobile engines drop onend — assume ~90ms/char
+      setTimeout(() => { if (this.speaking && this.lastText === text) { this.speaking = false; this._drain(); } },
+        Math.max(2500, text.length * 90));
+    } catch { this.speaking = false; }
+  },
+};
+export function say(text, { force = false, urgent = false } = {}) {
+  speech.say(text, { urgent: urgent || false, dedupeMs: force ? 0 : 6000 });
 }
+export function speechIdle() { return speech.idle(); }
 
 const HEB_COUNT = ['אחת', 'שתיים', 'שלוש', 'ארבע', 'חמש', 'שש', 'שבע', 'שמונה', 'תשע', 'עשר'];
 
@@ -118,33 +142,35 @@ export class WalkScan {
         break;
       case 'SYNC':
         if (diag.ok && lms) this.sampleAngles(lms);
-        if (this.sinceMs() > 1000)
+        if (this.sinceMs() > 1000 && speechIdle())
           this.setState('TURN_BACK', 'הסתובב — גב למצלמה', 'עכשיו הסתובב, גב למצלמה');
         break;
       case 'TURN_BACK':
-        if (this.sinceMs() > 3000)
+        if (this.sinceMs() > 2500 && speechIdle())
           this.setState('WALK_AWAY', 'לך קדימה — אני אגיד מתי לעצור', 'לך קדימה בקצב רגיל. אני אגיד לך מתי לעצור');
         break;
       case 'WALK_AWAY':
         if (!diag.ok && diag.reason === 'no_person')
           this.coach.feed(diag); // walked out of frame — call it out
         if (this.sinceMs() > 4500)
-          this.setState('STOP', 'עצור', 'עצור');
+          this.setState('STOP', 'עצור', null), say('עצור', { urgent: true });
         break;
       case 'STOP':
-        if (this.sinceMs() > 1500)
+        if (this.sinceMs() > 1200 && speechIdle())
           this.setState('TURN_FACE', 'הסתובב — פנים למצלמה', 'עכשיו הסתובב, פנים למצלמה');
         break;
       case 'TURN_FACE':
-        if (this.sinceMs() > 3000)
+        if (this.sinceMs() > 2500 && speechIdle())
           this.setState('WALK_TOWARD', 'לך ישר אל המצלמה', 'לך ישר אל המצלמה, בקצב רגיל, עד שאגיד עצור');
         break;
       case 'WALK_TOWARD': {
         if (lms && diag.ok) this.sampleAngles(lms);
         // stop from what the camera sees: heels reached the lower frame
         const arrived = lms && P.approachLevel(lms) > 0.9;
-        if ((arrived && this.sinceMs() > 2000) || this.sinceMs() > 8000)
-          this.setState('DONE', 'עצור — מעולה! השלב הושלם', 'עצור. מעולה, השלב הושלם');
+        if ((arrived && this.sinceMs() > 2000) || this.sinceMs() > 8000) {
+          say('עצור', { urgent: true });
+          this.setState('DONE', 'עצור — מעולה! השלב הושלם', 'מעולה, השלב הושלם');
+        }
         break;
       }
     }
@@ -221,7 +247,7 @@ export class ArchTest {
         if (!lms) break;
         const arch = P.archHeight(lms, P.standingSide(lms));
         if (arch != null) this.baseline.push(arch);
-        if (this.baseline.length > 30 && this.sinceMs() > 2500) {
+        if (this.baseline.length > 30 && this.sinceMs() > 2500 && speechIdle()) {
           this.setState('LIFT');
           this.ui.instr(`הרם את רגל ${this.otherName} — הרגל הקרובה למצלמה`);
           say(`עכשיו הרם את רגל ${this.otherName}, הרגל הקרובה למצלמה, ועמוד על רגל ${this.name} בלבד`, { force: true });
@@ -230,7 +256,7 @@ export class ArchTest {
       }
       case 'LIFT':
         if (!lms) break;
-        if (P.legLifted(lms)) {
+        if (P.legLifted(lms) && speechIdle()) {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
         } else if (this.sinceMs() > 7000) {
