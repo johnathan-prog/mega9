@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=5';
+import * as P from './pose.js?v=6';
 
 let hebVoice = null;
 function pickVoice() {
@@ -49,18 +49,25 @@ class StepCounter {
   constructor() { this.prev = 0; this.rising = false; this.steps = 0; this.lastStepAt = 0; }
   feed(lms) {
     const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
-    const sep = Math.hypot(la.x - ra.x, la.y - ra.y);
+    const lh = lms[P.LM.L_HIP], rh = lms[P.LM.R_HIP];
+    // normalize by leg length in frame, so the threshold is distance-
+    // independent: a step far from the camera and a step close to it
+    // produce the same normalized swing.
+    const legLen = (Math.hypot(lh.x - la.x, lh.y - la.y) +
+                    Math.hypot(rh.x - ra.x, rh.y - ra.y)) / 2;
+    if (legLen < 1e-3) return false;
+    const sep = Math.hypot(la.x - ra.x, la.y - ra.y) / legLen;
     const now = Date.now();
     let stepped = false;
-    if (sep > this.prev + 0.002) this.rising = true;
-    else if (this.rising && sep < this.prev - 0.002 && this.prev > 0.045
-             && now - this.lastStepAt > 350) {
+    if (sep > this.prev + 0.01) this.rising = true;
+    else if (this.rising && sep < this.prev - 0.01 && this.prev > 0.22
+             && now - this.lastStepAt > 400) {
       this.steps++; this.lastStepAt = now; this.rising = false; stepped = true;
     }
     this.prev = sep;
     return stepped;
   }
-  reset() { this.steps = 0; this.rising = false; this.lastStepAt = 0; }
+  reset() { this.prev = 0; this.steps = 0; this.rising = false; this.lastStepAt = 0; }
 }
 
 // ---------- walking scan (ankle height) ----------
@@ -188,9 +195,13 @@ export class WalkScan {
 }
 
 // ---------- single-leg arch-loading test ----------
-// Profile stance at ankle height. Starts only when floor-to-waist is in
-// frame. Captures a two-leg baseline arch height, then a loaded value on
-// one leg. If the user lifts the WRONG leg, the voice corrects them.
+// The arch is MEDIAL (inner side). To film the right foot's arch, the
+// camera must see its inner aspect: the user stands with their LEFT side
+// to the camera and lifts the LEFT (camera-near) leg out of the line of
+// sight, loading the right leg — the FAR leg, whose medial arch now
+// faces the camera. So correct form is: near foot lifted, far foot
+// planted, and the arch is measured on the far (standing) foot.
+// Starts only when floor-to-waist is in frame; wrong leg → voice fix.
 export class ArchTest {
   constructor({ side, holdMs = 5000, ui }) {
     this.side = side; this.other = side === 'R' ? 'L' : 'R';
@@ -213,22 +224,20 @@ export class ArchTest {
     if (this.state === 'HOLD') return 0.4 + 0.6 * Math.min(1, (Date.now() - this.stateSince) / this.holdMs);
     return 1;
   }
-  // Which foot is lifted — near (camera-side) or far? In profile stance
-  // the pose model often swaps its left/right labels (one leg occludes
-  // the other), so we do NOT trust R/L. The tested leg is the one whose
-  // side faces the camera, i.e. the ankle with the smaller depth (z).
-  // Correct form: near foot planted, far foot lifted.
-  // the landmark label ('R'/'L') of the camera-near ankle — the measured leg
-  nearLabel(lms) {
-    return (lms[P.LM.R_ANKLE].z ?? 0) <= (lms[P.LM.L_ANKLE].z ?? 0) ? 'R' : 'L';
+  // Left/right labels swap in profile (one leg occludes the other), so
+  // legs are identified by camera depth (z), never by label.
+  // The measured leg is the FAR (standing) one — its medial arch faces
+  // the camera; the near leg is the one lifted clear of the line of sight.
+  farLabel(lms) {
+    return (lms[P.LM.R_ANKLE].z ?? 0) >= (lms[P.LM.L_ANKLE].z ?? 0) ? 'R' : 'L';
   }
   liftedFoot(lms) {
     const a1 = lms[P.LM.R_ANKLE], a2 = lms[P.LM.L_ANKLE];
     const near = (a1.z ?? 0) <= (a2.z ?? 0) ? a1 : a2;
     const far = near === a1 ? a2 : a1;
-    const diff = far.y - near.y; // y grows downward
-    if (diff > 0.04) return 'near';  // near ankle is higher → wrong leg lifted
-    if (diff < -0.04) return 'far';  // far ankle is higher → correct
+    const diff = near.y - far.y; // y grows downward
+    if (diff > 0.04) return 'near';  // near ankle is higher → CORRECT form
+    if (diff < -0.04) return 'far';  // far (standing) ankle is up → wrong leg
     return null;                     // both down
   }
   // debounced classification: require consecutive frames before acting
@@ -252,8 +261,8 @@ export class ArchTest {
           if (!this.visibleSince) this.visibleSince = Date.now();
           if (Date.now() - this.visibleSince > 1000) {
             this.setState('PROFILE');
-            this.ui.instr(`עמוד בפרופיל, צד ${this.name} למצלמה`);
-            say(`מסונכרן. עמוד בפרופיל, כשצד ${this.name} שלך פונה למצלמה, על שתי הרגליים`, { force: true });
+            this.ui.instr(`עמוד בפרופיל — צד ${this.otherName} למצלמה`);
+            say(`מסונכרן. עמוד בפרופיל, כשצד ${this.otherName} שלך פונה למצלמה, על שתי הרגליים. ככה נראה את הקשת הפנימית של רגל ${this.name}`, { force: true });
           }
         } else {
           this.visibleSince = 0;
@@ -262,7 +271,7 @@ export class ArchTest {
         break;
       case 'PROFILE': {
         if (!lms) break;
-        const arch = P.archHeight(lms, this.nearLabel(lms));
+        const arch = P.archHeight(lms, this.farLabel(lms));
         if (arch != null) this.baseline.push(arch);
         if (this.baseline.length > 30 && this.sinceMs() > 2500) {
           this.setState('LIFT');
@@ -274,8 +283,8 @@ export class ArchTest {
       case 'LIFT': {
         if (!lms) break;
         const lifted = this.stableLifted(lms);
-        if (lifted === 'near') { this.correctWrongLeg(); break; }
-        if (lifted === 'far') {
+        if (lifted === 'far') { this.correctWrongLeg(); break; }
+        if (lifted === 'near') {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
         } else if (this.sinceMs() > 6000) {
@@ -287,9 +296,9 @@ export class ArchTest {
       case 'HOLD': {
         if (!lms) break;
         const lifted = this.stableLifted(lms);
-        if (lifted === 'near') { this.correctWrongLeg(); this.setState('LIFT'); break; }
+        if (lifted === 'far') { this.correctWrongLeg(); this.setState('LIFT'); break; }
         if (lifted === null) { this.setState('LIFT'); break; } // foot came down — restart hold
-        const arch = P.archHeight(lms, this.nearLabel(lms));
+        const arch = P.archHeight(lms, this.farLabel(lms));
         if (arch != null) this.loaded.push(arch);
         const left = Math.ceil((this.holdMs - this.sinceMs()) / 1000);
         this.ui.instr(left > 0 ? String(left) : '✓');
