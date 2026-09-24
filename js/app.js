@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=30';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=30';
-import { classify, LOGIC_LINE } from './engine.js?v=30';
+import * as P from './pose.js?v=31';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=31';
+import { classify, LOGIC_LINE } from './engine.js?v=31';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -86,6 +86,29 @@ let stageIdx = 0;
 const scanResults = {};
 // raw landmark log — the ground truth for offline calibration
 const rawLog = [];
+// evidence snapshots captured during recording: {t, url}
+const snaps = [];
+let lastSnapAt = 0;
+function captureSnap(video, lms, recT) {
+  const now = performance.now();
+  if (now - lastSnapAt < 1200 || snaps.length > 40 || !video.videoWidth) return;
+  lastSnapAt = now;
+  const c = document.createElement('canvas');
+  c.width = 270; c.height = 360;
+  const x = c.getContext('2d');
+  // mirror to match what the user sees on screen
+  x.translate(c.width, 0); x.scale(-1, 1);
+  x.drawImage(video, 0, 0, c.width, c.height);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.strokeStyle = '#4FE3C1'; x.lineWidth = 3; x.lineCap = 'round';
+  const pt = i => [(1 - lms[i].x) * c.width, lms[i].y * c.height];
+  for (const [a, b] of [[P.LM.R_HIP, P.LM.R_KNEE], [P.LM.R_KNEE, P.LM.R_ANKLE], [P.LM.R_HEEL, P.LM.R_KNEE],
+                        [P.LM.L_HIP, P.LM.L_KNEE], [P.LM.L_KNEE, P.LM.L_ANKLE], [P.LM.L_HEEL, P.LM.L_KNEE]]) {
+    const [ax, ay] = pt(a), [bx, by] = pt(b);
+    x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
+  }
+  snaps.push({ t: recT, url: c.toDataURL('image/jpeg', 0.6) });
+}
 function logFrame(stage, lms) {
   if (rawLog.length > 30000) return;
   rawLog.push({ s: stage, t: Math.round(performance.now()),
@@ -140,13 +163,15 @@ async function runStage(st) {
       if (abortScan) return resolve();
       const lms = P.detect(video, ts ?? performance.now());
       logFrame(st.key, lms);
+      if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
+        captureSnap(video, lms, machine.lastRecT);
       P.drawSkeleton(overlay, lms);
       machine.frame(lms);
       if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0) {
         const now = performance.now();
         const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
         machine._dbgT = now;
-        $('dbgLine').textContent = `v30 · ${fps}fps · ${P.visReport(lms)}`;
+        $('dbgLine').textContent = `v31 · ${fps}fps · ${P.visReport(lms)}`;
       }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
@@ -196,6 +221,7 @@ function renderResults(profile) {
     box.appendChild(el);
   });
   $('logicLine').textContent = LOGIC_LINE;
+  renderEvidence();
   $('dumpBtn').onclick = () => {
     const blob = new Blob([JSON.stringify({ ts: new Date().toISOString(), answers, scanResults, rawLog })],
       { type: 'application/json' });
@@ -210,6 +236,31 @@ function renderResults(profile) {
   $('recSpec').innerHTML =
     `<p style="margin:0 0 8px"><strong>ימין:</strong> ${out.R.name} · <strong>שמאל:</strong> ${out.L.name}${asym ? ' — מפרט נפרד לכל רגל' : ''}</p>
      <ul style="margin:0;padding-right:18px">${[...specs].map(s => `<li>${s}</li>`).join('')}</ul>`;
+}
+
+function nearestSnap(t) {
+  let best = null, d = Infinity;
+  for (const s of snaps) { const dd = Math.abs(s.t - t); if (dd < d) { d = dd; best = s; } }
+  return d < 1500 ? best : null;
+}
+function renderEvidence() {
+  const box = $('evidence'); box.innerHTML = '';
+  const walk = scanResults.walk || {};
+  const picks = [];
+  const add = (times, label) => {
+    const used = new Set();
+    for (const t of times || []) {
+      const s = nearestSnap(t);
+      if (s && !used.has(s.url)) { used.add(s.url); picks.push({ s, label }); if (used.size >= 2) break; }
+    }
+  };
+  add(walk.achTimes, 'מבט אחורי · קו גיד אכילס');
+  add(walk.kneeTimes, 'מבט קדמי · ציר הברך');
+  if (!picks.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<strong>צילומים מרגעי המדידה</strong><div class="evgrid">' +
+    picks.map(p => `<figure class="ev"><img src="${p.s.url}" alt=""><figcaption>${p.label}</figcaption></figure>`).join('') +
+    '</div><p class="small">הפריימים שנדגמו ברגעי התמיכה על רגל אחת — הבסיס למספרים שלמעלה.</p>';
 }
 
 /* ================= payment ================= */

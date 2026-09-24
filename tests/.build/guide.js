@@ -222,8 +222,9 @@ export class WalkScan {
           this.lastTurnCueAt = now;
           say('מספיק קרוב — הסתובב כאן וחזור', { force: true });
         } else if (lms && diag.ok) {
+          this.lastRecT = now - this.t0 - this.pausedMs;
           this.rec.push({
-            t: now - this.t0 - this.pausedMs,
+            t: this.lastRecT,
             sep: this.sep(lms),
             scale: scl || 0,
             aR: Math.abs(P.achillesDeviation(lms, 'R')),
@@ -257,7 +258,8 @@ export class WalkScan {
   }
   result() {
     const a = analyzeGait(this.rec);
-    return { R: a.R, L: a.L, frames: this.rec.length, cycles: a.cycles };
+    return { R: a.R, L: a.L, frames: this.rec.length, cycles: a.cycles,
+      achTimes: a.achTimes || [], kneeTimes: a.kneeTimes || [] };
   }
 }
 
@@ -317,6 +319,8 @@ function analyzeGait(rec) {
     R: { ach: +worstThird(pick(achIdx, 'aR')).toFixed(1), knee: +med(pick(kneeIdx, 'kR')).toFixed(1) },
     L: { ach: +worstThird(pick(achIdx, 'aL')).toFixed(1), knee: +med(pick(kneeIdx, 'kL')).toFixed(1) },
     cycles,
+    achTimes: achIdx.map(i => rec[i].t),
+    kneeTimes: kneeIdx.map(i => rec[i].t),
   };
 }
 
