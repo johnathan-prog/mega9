@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=15';
+import * as P from './pose.js?v=16';
 
 let hebVoice = null;
 function pickVoice() {
@@ -63,8 +63,6 @@ export function say(text, { force = false, urgent = false } = {}) {
 }
 export function speechIdle() { return speech.idle(); }
 
-const HEB_COUNT = ['אחת', 'שתיים', 'שלוש', 'ארבע', 'חמש', 'שש', 'שבע', 'שמונה', 'תשע', 'עשר'];
-
 // ---------- sight coach ----------
 // Speaks according to what the camera actually sees, not on a script:
 // every spoken line is derived from the current sight diagnosis, and it
@@ -90,37 +88,6 @@ class SightCoach {
     }
     return false;
   }
-}
-
-const HEB_COUNT = ['אחת', 'שתיים', 'שלוש', 'ארבע', 'חמש', 'שש', 'שבע', 'שמונה', 'תשע', 'עשר'];
-
-// ---------- step counter ----------
-// Real step detection: the ankles separate and close once per step. The
-// separation signal is normalized by the walker's leg scale in frame, so
-// the same threshold works near and far. Peak detection with smoothing,
-// hysteresis and a minimum interval kills double counts.
-class StepCounter {
-  constructor() { this.smooth = null; this.dir = 0; this.steps = 0; this.lastStepAt = 0; }
-  feed(lms) {
-    const scale = P.legScale(lms);
-    if (!scale) return false;
-    const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
-    const sep = Math.hypot(la.x - ra.x, la.y - ra.y) / scale;
-    if (this.smooth == null) { this.smooth = sep; return false; }
-    const prev = this.smooth;
-    this.smooth = prev * 0.55 + sep * 0.45;
-    let stepped = false;
-    if (this.smooth > prev + 0.006) this.dir = 1;
-    else if (this.smooth < prev - 0.006 && this.dir === 1) {
-      // a peak just passed; count it if the swing was a real stride
-      if (prev > 0.18 && Date.now() - this.lastStepAt > 380) {
-        this.steps++; this.lastStepAt = Date.now(); stepped = true;
-      }
-      this.dir = -1;
-    }
-    return stepped;
-  }
-  reset() { this.smooth = null; this.dir = 0; this.steps = 0; this.lastStepAt = 0; }
 }
 
 // ---------- walking scan (ankle height) ----------
