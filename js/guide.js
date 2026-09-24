@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=10';
+import * as P from './pose.js?v=11';
 
 let hebVoice = null;
 function pickVoice() {
@@ -104,6 +104,7 @@ export class WalkScan {
     this.samples = { R: { ach: [], knee: [] }, L: { ach: [], knee: [] } };
     this.stateSince = Date.now();
     this.visibleSince = 0;
+    this.faceFrames = 0;
     this.coach = new SightCoach(ui);
     this.ui.instr('עמוד מול המצלמה');
   }
@@ -142,13 +143,21 @@ export class WalkScan {
         break;
       case 'SYNC':
         if (diag.ok && lms) this.sampleAngles(lms);
-        if (this.sinceMs() > 1000 && speechIdle())
+        if (this.sinceMs() > 1000 && speechIdle()) {
+          this.faceFrames = 0;
           this.setState('TURN_BACK', 'הסתובב — גב למצלמה', 'עכשיו הסתובב, גב למצלמה');
+        }
         break;
       case 'TURN_BACK':
-        if (this.sinceMs() > 2500 && speechIdle()) {
+        // wait until the camera actually SEES the back (no face landmarks)
+        if (lms && P.facing(lms) === 'back') this.faceFrames++;
+        else this.faceFrames = 0;
+        if (this.faceFrames >= 8 && speechIdle()) {
           this.walkBase = null; this.reminded = false;
-          this.setState('WALK_AWAY', 'לך קדימה — אני אגיד מתי לעצור', 'לך קדימה בקצב רגיל. אני אגיד לך מתי לעצור');
+          this.setState('WALK_AWAY', 'לך קדימה — אני אגיד מתי לעצור', 'יופי. לך קדימה בקצב רגיל, אני אגיד לך מתי לעצור');
+        } else if (this.sinceMs() > 7000 && speechIdle()) {
+          say('אני עדיין רואה אותך מקדימה — הסתובב, גב למצלמה', { force: true });
+          this.stateSince = Date.now();
         }
         break;
       case 'WALK_AWAY': {
@@ -181,9 +190,15 @@ export class WalkScan {
           this.setState('TURN_FACE', 'הסתובב — פנים למצלמה', 'עכשיו הסתובב, פנים למצלמה');
         break;
       case 'TURN_FACE':
-        if (this.sinceMs() > 2500 && speechIdle()) {
+        // wait until the camera actually SEES the face again
+        if (lms && P.facing(lms) === 'front') this.faceFrames++;
+        else this.faceFrames = 0;
+        if (this.faceFrames >= 8 && speechIdle()) {
           this.walkBase = null; this.reminded = false;
-          this.setState('WALK_TOWARD', 'לך ישר אל המצלמה', 'לך ישר אל המצלמה, בקצב רגיל, עד שאגיד עצור');
+          this.setState('WALK_TOWARD', 'לך ישר אל המצלמה', 'יופי. עכשיו לך ישר אל המצלמה, בקצב רגיל, עד שאגיד עצור');
+        } else if (this.sinceMs() > 7000 && speechIdle()) {
+          say('הסתובב אליי — אני עדיין לא רואה את הפנים שלך', { force: true });
+          this.stateSince = Date.now();
         }
         break;
       case 'WALK_TOWARD': {
@@ -278,6 +293,11 @@ export class ArchTest {
         break;
       case 'PROFILE': {
         if (!lms) break;
+        if (P.facing(lms) === 'front' && this.sinceMs() > 5000 && speechIdle()) {
+          say(`אתה עדיין מול המצלמה — הסתובב לפרופיל, שצד ${this.otherName} יפנה אליי`, { force: true });
+          this.stateSince = Date.now();
+          break;
+        }
         const arch = P.archHeight(lms, P.standingSide(lms));
         if (arch != null) this.baseline.push(arch);
         if (this.baseline.length > 30 && this.sinceMs() > 2500 && speechIdle()) {

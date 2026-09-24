@@ -8,7 +8,7 @@ const MODEL_URL =
 
 // MediaPipe Pose landmark indices
 export const LM = {
-  NOSE: 0,
+  NOSE: 0, L_EYE: 2, R_EYE: 5, L_EAR: 7, R_EAR: 8,
   L_HIP: 23, R_HIP: 24,
   L_KNEE: 25, R_KNEE: 26,
   L_ANKLE: 27, R_ANKLE: 28,
@@ -172,6 +172,18 @@ export function legLifted(lms) {
 // the closer the person is to an ankle-height camera.
 export function approachLevel(lms) {
   return Math.max(lms[LM.R_HEEL].y, lms[LM.L_HEEL].y);
+}
+
+// Body orientation from face-landmark visibility: nose + both eyes
+// confidently seen = facing the camera; no face signal at all = back to
+// camera; one eye/ear = profile.
+export function facing(lms) {
+  const vis = i => (lms[i].visibility ?? 0);
+  const face = (vis(LM.NOSE) + vis(LM.L_EYE) + vis(LM.R_EYE)) / 3;
+  const ears = (vis(LM.L_EAR) + vis(LM.R_EAR)) / 2;
+  if (face > 0.6) return 'front';
+  if (face < 0.25 && ears < 0.5) return 'back';
+  return 'profile';
 }
 
 // Apparent leg scale in frame (hip→heel length). Shrinks as the person
