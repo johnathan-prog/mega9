@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=6';
+import * as P from './pose.js?v=7';
 
 let hebVoice = null;
 function pickVoice() {
@@ -195,74 +195,47 @@ export class WalkScan {
 }
 
 // ---------- single-leg arch-loading test ----------
-// The arch is MEDIAL (inner side). To film the right foot's arch, the
-// camera must see its inner aspect: the user stands with their LEFT side
-// to the camera and lifts the LEFT (camera-near) leg out of the line of
-// sight, loading the right leg — the FAR leg, whose medial arch now
-// faces the camera. So correct form is: near foot lifted, far foot
-// planted, and the arch is measured on the far (standing) foot.
-// Starts only when floor-to-waist is in frame; wrong leg → voice fix.
+// The arch is MEDIAL (inner side). To film the right foot's arch the
+// user stands with their LEFT side to the camera and lifts the LEFT
+// (camera-near) leg out of the line of sight, loading the right leg —
+// the far leg, whose medial arch now faces the camera.
+// No wrong-leg policing: profile depth data is too noisy to accuse the
+// user. Instead the instructions are unambiguous, the hold starts when
+// ANY foot is clearly lifted, and the arch is always measured on the
+// STANDING (lower) foot — so the measurement cannot land on the wrong leg.
 export class ArchTest {
   constructor({ side, holdMs = 5000, ui }) {
-    this.side = side; this.other = side === 'R' ? 'L' : 'R';
+    this.side = side;
     this.holdMs = holdMs; this.ui = ui;
     this.state = 'FIND';
     this.baseline = []; this.loaded = [];
     this.stateSince = Date.now();
     this.visibleSince = 0;
-    this.lastCorrectionAt = 0;
     this.name = side === 'R' ? 'ימין' : 'שמאל';
     this.otherName = side === 'R' ? 'שמאל' : 'ימין';
     this.ui.instr('התרחק עד שרואים אותך מהרצפה עד המותן');
   }
   setState(s) { this.state = s; this.stateSince = Date.now(); }
+  sinceMs() { return Date.now() - this.stateSince; }
   get done() { return this.state === 'DONE'; }
   progress() {
     if (this.state === 'FIND') return 0.05;
     if (this.state === 'PROFILE') return 0.2;
     if (this.state === 'LIFT') return 0.35;
-    if (this.state === 'HOLD') return 0.4 + 0.6 * Math.min(1, (Date.now() - this.stateSince) / this.holdMs);
+    if (this.state === 'HOLD') return 0.4 + 0.6 * Math.min(1, this.sinceMs() / this.holdMs);
     return 1;
   }
-  // Left/right labels swap in profile (one leg occludes the other), so
-  // legs are identified by camera depth (z), never by label.
-  // The measured leg is the FAR (standing) one — its medial arch faces
-  // the camera; the near leg is the one lifted clear of the line of sight.
-  farLabel(lms) {
-    return (lms[P.LM.R_ANKLE].z ?? 0) >= (lms[P.LM.L_ANKLE].z ?? 0) ? 'R' : 'L';
-  }
-  liftedFoot(lms) {
-    const a1 = lms[P.LM.R_ANKLE], a2 = lms[P.LM.L_ANKLE];
-    const near = (a1.z ?? 0) <= (a2.z ?? 0) ? a1 : a2;
-    const far = near === a1 ? a2 : a1;
-    const diff = near.y - far.y; // y grows downward
-    if (diff > 0.04) return 'near';  // near ankle is higher → CORRECT form
-    if (diff < -0.04) return 'far';  // far (standing) ankle is up → wrong leg
-    return null;                     // both down
-  }
-  // debounced classification: require consecutive frames before acting
-  stableLifted(lms) {
-    const v = this.liftedFoot(lms);
-    if (v === this._lastLift) this._liftFrames = (this._liftFrames || 0) + 1;
-    else { this._lastLift = v; this._liftFrames = 1; }
-    return this._liftFrames >= 12 ? v : undefined; // ~0.5s at 25fps
-  }
-  correctWrongLeg() {
-    if (Date.now() - this.lastCorrectionAt < 4000) return;
-    this.lastCorrectionAt = Date.now();
-    say(`רגל לא נכונה! עמוד על רגל ${this.name} והרם את רגל ${this.otherName}`, { force: true });
-    this.ui.instr(`עמוד על רגל ${this.name} — הרם את רגל ${this.otherName}`);
-  }
   frame(lms) {
-    const visible = !!lms && P.lowerBodyVisible(lms);
+    const visible = !!lms && P.profileVisible(lms);
     switch (this.state) {
       case 'FIND':
         if (visible) {
           if (!this.visibleSince) this.visibleSince = Date.now();
+          this.ui.instr('רואים אותך ✓');
           if (Date.now() - this.visibleSince > 1000) {
             this.setState('PROFILE');
             this.ui.instr(`עמוד בפרופיל — צד ${this.otherName} למצלמה`);
-            say(`מסונכרן. עמוד בפרופיל, כשצד ${this.otherName} שלך פונה למצלמה, על שתי הרגליים. ככה נראה את הקשת הפנימית של רגל ${this.name}`, { force: true });
+            say(`מסונכרן. עמוד בפרופיל, כשצד ${this.otherName} שלך פונה למצלמה, על שתי הרגליים. ככה רואים את הקשת הפנימית של רגל ${this.name}`, { force: true });
           }
         } else {
           this.visibleSince = 0;
@@ -271,34 +244,33 @@ export class ArchTest {
         break;
       case 'PROFILE': {
         if (!lms) break;
-        const arch = P.archHeight(lms, this.farLabel(lms));
+        const arch = P.archHeight(lms, P.standingSide(lms));
         if (arch != null) this.baseline.push(arch);
         if (this.baseline.length > 30 && this.sinceMs() > 2500) {
           this.setState('LIFT');
-          this.ui.instr(`עמוד על רגל ${this.name} — הרם את רגל ${this.otherName}`);
-          say(`עכשיו הרם את רגל ${this.otherName} ועמוד על רגל ${this.name} בלבד`, { force: true });
+          this.ui.instr(`הרם את רגל ${this.otherName} — הרגל הקרובה למצלמה`);
+          say(`עכשיו הרם את רגל ${this.otherName}, הרגל הקרובה למצלמה, ועמוד על רגל ${this.name} בלבד`, { force: true });
         }
         break;
       }
-      case 'LIFT': {
+      case 'LIFT':
         if (!lms) break;
-        const lifted = this.stableLifted(lms);
-        if (lifted === 'far') { this.correctWrongLeg(); break; }
-        if (lifted === 'near') {
+        if (P.legLifted(lms)) {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
-        } else if (this.sinceMs() > 6000) {
-          say(`הרם את רגל ${this.otherName} מהרצפה`, { force: true });
+        } else if (this.sinceMs() > 7000) {
+          say(`הרם את רגל ${this.otherName} מהרצפה ועמוד על רגל ${this.name}`, { force: true });
           this.stateSince = Date.now();
         }
         break;
-      }
       case 'HOLD': {
         if (!lms) break;
-        const lifted = this.stableLifted(lms);
-        if (lifted === 'far') { this.correctWrongLeg(); this.setState('LIFT'); break; }
-        if (lifted === null) { this.setState('LIFT'); break; } // foot came down — restart hold
-        const arch = P.archHeight(lms, this.farLabel(lms));
+        if (!P.legLifted(lms)) { // foot came down — restart the hold
+          this.setState('LIFT');
+          this.ui.instr(`הרם את רגל ${this.otherName} והחזק`);
+          break;
+        }
+        const arch = P.archHeight(lms, P.standingSide(lms));
         if (arch != null) this.loaded.push(arch);
         const left = Math.ceil((this.holdMs - this.sinceMs()) / 1000);
         this.ui.instr(left > 0 ? String(left) : '✓');
@@ -310,7 +282,6 @@ export class ArchTest {
       }
     }
   }
-  sinceMs() { return Date.now() - this.stateSince; }
   result() {
     const med = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)] ?? 0; };
     const base = med(this.baseline), load = med(this.loaded);

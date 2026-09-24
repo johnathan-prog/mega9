@@ -135,3 +135,32 @@ export function lowerBodyVisible(lms) {
   const minY = Math.min(lms[LM.L_HIP].y, lms[LM.R_HIP].y);
   return maxY < 0.99 && minY > 0.01;
 }
+
+// Profile readiness: in profile stance one leg occludes the other, so
+// requiring both legs never triggers. One full leg chain in frame is
+// enough: hip→knee→ankle→heel on either side, with the heel inside frame.
+export function profileVisible(lms) {
+  const chain = side => {
+    const ids = side === 'R'
+      ? [LM.R_HIP, LM.R_KNEE, LM.R_ANKLE, LM.R_HEEL]
+      : [LM.L_HIP, LM.L_KNEE, LM.L_ANKLE, LM.L_HEEL];
+    return ids.every(i => (lms[i].visibility ?? 1) > 0.5)
+      && lms[ids[3]].y < 0.99 && lms[ids[0]].y > 0.01;
+  };
+  return chain('R') || chain('L');
+}
+
+// The standing (loaded) foot right now: the LOWER ankle (y grows down).
+export function standingSide(lms) {
+  return lms[LM.R_ANKLE].y >= lms[LM.L_ANKLE].y ? 'R' : 'L';
+}
+
+// Is some foot clearly lifted? (ankle height gap, scale-free via leg len)
+export function legLifted(lms) {
+  const la = lms[LM.L_ANKLE], ra = lms[LM.R_ANKLE];
+  const lh = lms[LM.L_HIP], rh = lms[LM.R_HIP];
+  const legLen = (Math.hypot(lh.x - la.x, lh.y - la.y) +
+                  Math.hypot(rh.x - ra.x, rh.y - ra.y)) / 2;
+  if (legLen < 1e-3) return false;
+  return Math.abs(la.y - ra.y) / legLen > 0.12;
+}
