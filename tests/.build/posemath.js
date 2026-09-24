@@ -117,7 +117,7 @@ export function archDiagnose(lms) {
   if (!leg) return { ok: false, reason: 'legs_hidden' };
   if (lms[leg.h].y > 0.985 || lms[leg.t].y > 0.985) return { ok: false, reason: 'feet_cut' };
   const footLen = Math.hypot(lms[leg.t].x - lms[leg.h].x, lms[leg.t].y - lms[leg.h].y);
-  if (footLen < 0.055) return { ok: false, reason: 'too_far' };
+  if (footLen < 0.03) return { ok: false, reason: 'too_far' };
   return { ok: true };
 }
 
