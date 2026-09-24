@@ -45,7 +45,7 @@ input.t{border:1.5px solid var(--line);border-radius:10px;padding:11px;font:600 
 .setup{display:flex;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .setup .n{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700;flex:none}
 .scanbox{position:relative;border-radius:14px;overflow:hidden;background:#0B1416;aspect-ratio:3/4;max-width:100%}
-.scanbox video,.scanbox canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scanbox video,.scanbox canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
 .hud{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:12px;pointer-events:none;color:#DFF3EE;font-size:13px}
 .hud .tag{background:rgba(14,124,102,.85);border-radius:8px;padding:4px 10px;align-self:flex-start;font-weight:700}
 .hud .angles{display:flex;gap:8px}

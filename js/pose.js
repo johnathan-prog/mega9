@@ -30,7 +30,10 @@ export async function initPose() {
   return landmarker;
 }
 
-export async function openCamera(videoEl, facing = 'environment') {
+// Front (selfie) camera by default: the customer sees themselves and the
+// on-screen instructions while positioning. The display is mirrored in CSS;
+// landmark math runs on the unmirrored frames, so angles are unaffected.
+export async function openCamera(videoEl, facing = 'user') {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 960 } },
     audio: false,
