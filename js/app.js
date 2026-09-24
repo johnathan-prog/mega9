@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=2';
-import { WalkScan, ArchTest, say } from './guide.js?v=2';
-import { classify, LOGIC_LINE } from './engine.js?v=2';
+import * as P from './pose.js?v=3';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=3';
+import { classify, LOGIC_LINE } from './engine.js?v=3';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -73,12 +73,12 @@ const STAGES = [
   { key: 'knee', title: 'סריקת הליכה · גובה ברך',
     sub: 'בזווית הזו נבדק ציר הרגל: קו הברך והשוק לאורך צעד.',
     steps: ['הנח את הטלפון יציב בגובה הברך (על ספר או קופסה), מסך אליך',
-            'התרחק כ־3 מטרים, יחף, במכנסיים קצרים או מופשלים',
-            'האפליקציה תדריך אותך בקול: ללכת, לעצור, להסתובב'] },
+            'התרחק כ־3 מטרים, יחף, במכנסיים קצרים או מופשלים — ועמוד מול המצלמה לסנכרון',
+            'ההדרכה הקולית תלווה אותך: הסתובב, 5 צעדים, עצור, פנים למצלמה, 5 צעדים'] },
   { key: 'ankle', title: 'סריקת הליכה · גובה קרסול',
     sub: 'החלק החשוב: זווית העקב וגיד אכילס בזמן תנועה.',
     steps: ['הורד את הטלפון לגובה הקרסול, נשען יציב',
-            'אותו מסלול — האפליקציה מדריכה'] },
+            'אותו תרגיל: סנכרון, גב למצלמה, 5 צעדים, עצור, פנים למצלמה, 5 צעדים'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
     steps: ['הטלפון נשאר בגובה קרסול', 'עמוד בפרופיל, צד ימין למצלמה', 'עקוב אחרי ההנחיות הקוליות'] },
@@ -98,7 +98,10 @@ function prepStage(i) {
     `<div class="setup"><span class="n">${n + 1}</span>${s}</div>`).join('');
   go('setup');
 }
-$('setupStart').onclick = () => runStage(STAGES[stageIdx]);
+$('setupStart').onclick = () => {
+  primeTTS(); // mobile TTS unlocks only from a user gesture
+  runStage(STAGES[stageIdx]);
+};
 
 let abortScan = false;
 $('scanAbort').onclick = () => { abortScan = true; };
@@ -124,7 +127,7 @@ async function runStage(st) {
   overlay.width = video.videoWidth; overlay.height = video.videoHeight;
   const machine = st.key === 'archR' ? new ArchTest({ side: 'R', ui })
     : st.key === 'archL' ? new ArchTest({ side: 'L', ui })
-    : new WalkScan({ passes: 3, ui });
+    : new WalkScan({ steps: 5, ui });
   ui.tag(st.title);
   $('angleHud').hidden = !(machine instanceof WalkScan);
   $('scanHint').textContent = 'עקוב אחרי ההנחיות על המסך ובקול';

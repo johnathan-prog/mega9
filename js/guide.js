@@ -1,7 +1,28 @@
 // guide.js — real-time guidance: voice (Hebrew TTS) + big on-screen text.
 // The scan state machines live here; they consume landmark frames and
 // decide what to tell the user next.
-import * as P from './pose.js?v=2';
+import * as P from './pose.js?v=3';
+
+let hebVoice = null;
+function pickVoice() {
+  const vs = speechSynthesis.getVoices();
+  hebVoice = vs.find(v => v.lang && v.lang.startsWith('he')) || null;
+}
+if ('speechSynthesis' in window) {
+  pickVoice();
+  speechSynthesis.onvoiceschanged = pickVoice;
+}
+
+// Mobile browsers only allow TTS started from a user gesture. Call this
+// from the Start button's click handler to unlock the audio channel.
+export function primeTTS() {
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance('מתחילים');
+    u.lang = 'he-IL'; if (hebVoice) u.voice = hebVoice;
+    speechSynthesis.speak(u);
+  } catch { /* no TTS — screen text still guides */ }
+}
 
 let lastSpoken = '', lastSpokenAt = 0;
 export function say(text, { force = false } = {}) {
@@ -11,78 +32,121 @@ export function say(text, { force = false } = {}) {
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'he-IL'; u.rate = 1.05;
+    u.lang = 'he-IL'; u.rate = 1.05; if (hebVoice) u.voice = hebVoice;
     speechSynthesis.speak(u);
-  } catch { /* TTS unavailable — screen text still guides */ }
+  } catch { /* TTS unavailable */ }
+}
+
+// ---------- step counter ----------
+// Counts steps from the horizontal ankle-separation oscillation: each
+// stride swings the ankles apart and back. A peak above threshold with a
+// minimum interval = one step.
+class StepCounter {
+  constructor() { this.prev = 0; this.rising = false; this.steps = 0; this.lastStepAt = 0; }
+  feed(lms) {
+    const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
+    const sep = Math.hypot(la.x - ra.x, la.y - ra.y);
+    const now = Date.now();
+    if (sep > this.prev + 0.002) this.rising = true;
+    else if (this.rising && sep < this.prev - 0.002 && this.prev > 0.045
+             && now - this.lastStepAt > 350) {
+      this.steps++; this.lastStepAt = now; this.rising = false;
+    }
+    this.prev = sep;
+    return this.steps;
+  }
+  reset() { this.steps = 0; this.rising = false; this.lastStepAt = 0; }
 }
 
 // ---------- walking scan (knee / ankle height) ----------
-// Guides the user into position, then runs N walk-toward-camera passes,
-// sampling Achilles + knee-axis angles only on valid mid-walk frames.
+// The exact protocol:
+//   sync facing the camera → turn (back to camera) → 5 steps forward →
+//   stop → turn (face the camera) → 5 steps forward (toward the camera).
+// Angles are sampled on the walk-toward-camera leg of the pass.
 export class WalkScan {
-  constructor({ passes = 3, ui }) {
-    this.passes = passes; this.ui = ui;
+  constructor({ steps = 5, ui }) {
+    this.stepsTarget = steps; this.ui = ui;
     this.state = 'FIND';
-    this.pass = 0;
     this.samples = { R: { ach: [], knee: [] }, L: { ach: [], knee: [] } };
+    this.counter = new StepCounter();
     this.sizeHist = [];
     this.stateSince = Date.now();
+    this.ui.instr('עמוד מול המצלמה');
   }
   setState(s, instr, speak) {
-    if (this.state !== s) { this.state = s; this.stateSince = Date.now(); }
-    this.ui.instr(instr);
-    if (speak) say(speak);
+    if (this.state !== s) {
+      this.state = s; this.stateSince = Date.now();
+      if (instr != null) this.ui.instr(instr);
+      if (speak) say(speak, { force: true });
+    } else if (instr != null) this.ui.instr(instr);
   }
+  sinceMs() { return Date.now() - this.stateSince; }
   get done() { return this.state === 'DONE'; }
   progress() {
-    const per = 1 / this.passes;
-    const inPass = this.state === 'WALK' ? 0.5 : this.state === 'RETURN' ? 0.85 : 0.1;
-    return Math.min(1, this.pass * per + inPass * per);
+    const map = { FIND: .02, SYNC: .1, TURN_BACK: .2, WALK_AWAY: .35, STOP: .55, TURN_FACE: .65, WALK_TOWARD: .8, DONE: 1 };
+    let p = map[this.state] ?? 0;
+    if (this.state === 'WALK_AWAY') p = .25 + .3 * (this.counter.steps / this.stepsTarget);
+    if (this.state === 'WALK_TOWARD') p = .7 + .3 * (this.counter.steps / this.stepsTarget);
+    return Math.min(1, p);
   }
   frame(lms) {
-    if (!lms) { this.setState('FIND', 'התרחק כך שכל הגוף בפריים', 'לא רואים אותך — התרחק מהמצלמה עד שכל הגוף בתמונה'); return; }
+    if (!lms) {
+      if (this.state === 'FIND' || this.state === 'SYNC')
+        this.setState('FIND', 'עמוד מול המצלמה, שכל הגוף ייראה', 'עמוד מול המצלמה כך שכל הגוף נראה בתמונה');
+      return;
+    }
     const h = P.personHeight(lms);
-    this.sizeHist.push(h); if (this.sizeHist.length > 8) this.sizeHist.shift();
-    const trend = this.sizeHist.length > 4
-      ? this.sizeHist.at(-1) - this.sizeHist[0] : 0;
+    this.sizeHist.push(h); if (this.sizeHist.length > 10) this.sizeHist.shift();
 
     switch (this.state) {
       case 'FIND':
-        if (P.legsVisible(lms)) this.setState('POSITION', '', '');
+        if (P.legsVisible(lms)) this.setState('SYNC', 'עמוד מול המצלמה — מסנכרן…', 'מצוין. עמוד ישר מול המצלמה, פנים למצלמה');
         break;
-      case 'POSITION':
-        if (h > 0.85) this.setState('POSITION', 'צעד אחורה', 'קרוב מדי — קח כמה צעדים אחורה');
-        else if (h < 0.45) this.setState('POSITION', 'צעד קדימה', 'רחוק מדי — התקרב מעט');
-        else this.setState('HOLD', 'עצור. עמוד במקום', 'מצוין. עצור ועמוד במקום שנייה');
+      case 'SYNC':
+        if (!P.legsVisible(lms)) { this.setState('FIND', 'עמוד מול המצלמה, שכל הגוף ייראה'); break; }
+        if (h > 0.9) this.setState('SYNC', 'צעד אחורה', 'קרוב מדי — קח צעד אחורה');
+        else if (this.sinceMs() > 2000) {
+          this.counter.reset();
+          this.setState('TURN_BACK', 'הסתובב — גב למצלמה', 'מסונכרן! עכשיו הסתובב, גב למצלמה');
+        }
         break;
-      case 'HOLD':
-        if (Date.now() - this.stateSince > 1500)
-          this.setState('WALK', 'לך ישר אל המצלמה', `מעבר ${this.pass + 1} מתוך ${this.passes}. לך ישר אל המצלמה בקצב רגיל`);
+      case 'TURN_BACK':
+        if (this.sinceMs() > 3000) {
+          this.counter.reset();
+          this.setState('WALK_AWAY', 'קח 5 צעדים קדימה', 'קח חמישה צעדים קדימה');
+        }
         break;
-      case 'WALK':
-        // sample only while clearly approaching and legs tracked
-        if (P.legsVisible(lms) && trend > 0.002 && h > 0.5 && h < 0.92) {
+      case 'WALK_AWAY': {
+        const n = this.counter.feed(lms);
+        this.ui.instr(`צעד ${Math.min(n, this.stepsTarget)} מתוך ${this.stepsTarget}`);
+        if (n >= this.stepsTarget || h < 0.35)
+          this.setState('STOP', 'עצור', 'עצור');
+        break;
+      }
+      case 'STOP':
+        if (this.sinceMs() > 1500)
+          this.setState('TURN_FACE', 'הסתובב — פנים למצלמה', 'עכשיו הסתובב, פנים למצלמה');
+        break;
+      case 'TURN_FACE':
+        if (this.sinceMs() > 3000) {
+          this.counter.reset();
+          this.setState('WALK_TOWARD', 'קח 5 צעדים אל המצלמה', 'קח חמישה צעדים קדימה, ישר אל המצלמה, בקצב רגיל');
+        }
+        break;
+      case 'WALK_TOWARD': {
+        // the measurement leg: sample while approaching with legs tracked
+        if (P.legsVisible(lms)) {
           for (const side of ['R', 'L']) {
             this.samples[side].ach.push(Math.abs(P.achillesDeviation(lms, side)));
             this.samples[side].knee.push(P.kneeAxis(lms, side));
           }
         }
-        if (h >= 0.92)
-          this.setState('TURN', 'עצור. הסתובב', 'עצור. עכשיו הסתובב וחזור לנקודת ההתחלה');
+        const n = this.counter.feed(lms);
+        this.ui.instr(`צעד ${Math.min(n, this.stepsTarget)} מתוך ${this.stepsTarget}`);
+        if (n >= this.stepsTarget || h > 0.92)
+          this.setState('DONE', 'מעולה! השלב הושלם', 'מעולה! השלב הושלם');
         break;
-      case 'TURN':
-        if (Date.now() - this.stateSince > 2000) this.setState('RETURN', 'חזור לנקודת ההתחלה', '');
-        break;
-      case 'RETURN':
-        if (h < 0.6 && Date.now() - this.stateSince > 2000) {
-          this.pass++;
-          if (this.pass >= this.passes) {
-            this.setState('DONE', 'מעולה! השלב הושלם', 'מעולה, שלב הסריקה הושלם');
-          } else {
-            this.setState('HOLD', 'עצור. עמוד במקום', 'עצור והסתובב אל המצלמה');
-          }
-        }
-        break;
+      }
     }
   }
   // Robust aggregate: median of the worst (highest-deviation) third —
@@ -108,8 +172,8 @@ export class WalkScan {
 }
 
 // ---------- single-leg arch-loading test ----------
-// Profile stance: capture a two-leg baseline arch height, then a loaded
-// value while standing on one leg for `holdMs`. Collapse% = relative drop.
+// Profile stance at ankle height: capture a two-leg baseline arch height,
+// then a loaded value while standing on one leg for `holdMs`.
 export class ArchTest {
   constructor({ side, holdMs = 5000, ui }) {
     this.side = side; this.holdMs = holdMs; this.ui = ui;
@@ -118,7 +182,7 @@ export class ArchTest {
     this.stateSince = Date.now();
     const name = side === 'R' ? 'ימין' : 'שמאל';
     this.ui.instr(`עמוד בפרופיל, צד ${name} למצלמה`);
-    say(`עמוד בפרופיל, כשצד ${name} שלך פונה למצלמה, על שתי הרגליים`);
+    say(`עמוד בפרופיל, כשצד ${name} שלך פונה למצלמה, על שתי הרגליים`, { force: true });
   }
   setState(s) { this.state = s; this.stateSince = Date.now(); }
   get done() { return this.state === 'DONE'; }
@@ -138,7 +202,7 @@ export class ArchTest {
           this.setState('LIFT');
           const name = this.side === 'R' ? 'ימין' : 'שמאל';
           this.ui.instr(`עכשיו עמוד על רגל ${name} בלבד`);
-          say(`עכשיו הרם את הרגל השנייה ועמוד על רגל ${name} בלבד. החזק חמש שניות`);
+          say(`עכשיו הרם את הרגל השנייה ועמוד על רגל ${name} בלבד. החזק חמש שניות`, { force: true });
         }
         break;
       case 'LIFT':
@@ -150,7 +214,7 @@ export class ArchTest {
         this.ui.instr(left > 0 ? String(left) : '✓');
         if (Date.now() - this.stateSince >= this.holdMs) {
           this.setState('DONE');
-          say('יופי, אפשר להוריד את הרגל');
+          say('יופי, אפשר להוריד את הרגל', { force: true });
         }
         break;
       }
