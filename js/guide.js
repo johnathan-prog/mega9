@@ -1,7 +1,7 @@
 // guide.js — real-time guidance: voice (Hebrew TTS) + big on-screen text.
 // The scan state machines live here; they consume landmark frames and
 // decide what to tell the user next.
-import * as P from './pose.js';
+import * as P from './pose.js?v=2';
 
 let lastSpoken = '', lastSpokenAt = 0;
 export function say(text, { force = false } = {}) {
