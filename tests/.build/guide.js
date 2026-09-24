@@ -333,15 +333,22 @@ export class ArchTest {
     const foot = s => {
       const h = lms[s === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL];
       const t = lms[s === 'R' ? P.LM.R_TOE : P.LM.L_TOE];
-      return { heelY: h.y, len: Math.hypot(t.x - h.x, t.y - h.y) };
+      return { heelY: h.y, vis: h.visibility ?? 1, len: Math.hypot(t.x - h.x, t.y - h.y) };
     };
     const R = foot('R'), L = foot('L');
     const ref = Math.max(R.len, L.len);
     if (ref < 1e-3) return null;
     const up = s => (this.floorY - s.heelY) / ref;     // heel height above floor, in foot-lengths
     const rUp = up(R), lUp = up(L);
-    if (rUp > 0.45 && lUp < 0.2) return 'R';
-    if (lUp > 0.45 && rUp < 0.2) return 'L';
+    // Path 1: a clear (even low) hover — one heel above the floor line
+    // while the other sits near it. Real lifts are often just a hover.
+    if (rUp > 0.25 && lUp < rUp - 0.15) return 'R';
+    if (lUp > 0.25 && rUp < lUp - 0.15) return 'L';
+    // Path 2: occlusion — in close-up profile the lifted near leg hides
+    // one heel entirely. A heel that VANISHES while the other stays
+    // confidently planted on the floor line is a lifted foot.
+    if (R.vis < 0.35 && L.vis > 0.55 && Math.abs(up(L)) < 0.2) return 'R';
+    if (L.vis < 0.35 && R.vis > 0.55 && Math.abs(up(R)) < 0.2) return 'L';
     return null;
   }
   setState(s) { this.state = s; this.stateSince = Date.now(); }
@@ -401,8 +408,8 @@ export class ArchTest {
         if (this.liftedLabel(lms) && speechIdle()) {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
-        } else if (this.sinceMs() > 7000) {
-          say(`הרם את רגל ${this.otherName} מהרצפה ועמוד על רגל ${this.name}`, { force: true });
+        } else if (this.sinceMs() > 6000) {
+          say(`הרם את רגל ${this.otherName} קצת יותר גבוה מהרצפה`, { force: true });
           this.stateSince = Date.now();
         }
         break;

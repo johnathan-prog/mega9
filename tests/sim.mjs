@@ -192,6 +192,24 @@ const ui = () => ({ instr() {}, tag() {} });
   // collapse from 0.25 → 0.15 = 40%
   check(`collapse ≈ 40% from the standing foot (got ${r.collapse}%)`,
     r.collapse > 30 && r.collapse < 50);
+
+  // a LOW hover must be enough — and an OCCLUDED lifted heel too
+  for (const [name, tweak] of [
+    ['low hover lift detected', p => { p[P.LM.L_HEEL].y -= 0.30 * 0.225; p[P.LM.L_TOE].y -= 0.30 * 0.225; }],
+    ['occluded lifted heel detected', p => { p[P.LM.L_HEEL].visibility = 0.1; p[P.LM.L_TOE].visibility = 0.1; }],
+  ]) {
+    const m2 = new G.ArchTest({ side: 'R', ui: ui() });
+    for (let i = 0; i < 200 && m2.state !== 'LIFT'; i++)
+      await tick(m2, person({ dist: 1.2, face: 'profile' }));
+    for (let i = 0; i < 100 && m2.state !== 'HOLD'; i++) {
+      const p = person({ dist: 1.2, face: 'profile', lift: 'L' });
+      // undo the full lift, apply the tweak on a both-down pose
+      const q = person({ dist: 1.2, face: 'profile' });
+      tweak(q);
+      await tick(m2, name.includes('hover') ? q : (tweak(p), p));
+    }
+    check(name, m2.state === 'HOLD', `state=${m2.state}`);
+  }
 }
 
 // ================= T5: classification tree =================
