@@ -145,13 +145,24 @@ const ui = () => ({ instr() {}, tag() {} });
     Math.abs(r.R.ach - 6) < 2.5 && Math.abs(r.L.ach - 6) < 2.5);
 }
 
-// ================= T3: sync survives confidence flicker =================
+// ================= T3: marginal detection must not flip-flop =================
 {
-  console.log('T3 flicker tolerance');
+  console.log('T3 flicker / flip-flop tolerance');
   const m = new G.WalkScan({ ui: ui() });
   for (let i = 0; i < 120 && m.state === 'FIND'; i++)
     await tick(m, person({ conf: i % 3 === 0 ? 0.15 : 0.7 })); // 1/3 bad frames
   check('syncs despite flicker', m.state !== 'FIND', `state=${m.state}`);
+
+  const m2 = new G.WalkScan({ ui: ui() });
+  spoken.length = 0;
+  // detection dropping out entirely on 30% of frames — the killer case
+  for (let i = 0; i < 200 && m2.state === 'FIND'; i++)
+    await tick(m2, i % 10 < 3 ? null : person());
+  check('syncs despite 30% dropped frames', m2.state !== 'FIND', `state=${m2.state}`);
+  const seeYou = spoken.filter(s => s.includes('אני רואה אותך')).length;
+  const loseYou = spoken.filter(s => s.includes('לא רואה')).length;
+  check('no I-see-you/lost-you loop', seeYou <= 1 && loseYou === 0,
+    `seeYou=${seeYou} loseYou=${loseYou}`);
 }
 
 // ================= T4: arch test measures the STANDING foot =================

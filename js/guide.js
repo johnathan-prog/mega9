@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=21';
+import * as P from './posemath.js?v=22';
 
 let hebVoice = null;
 function pickVoice() {
@@ -74,26 +74,36 @@ const SIGHT_LINES = {
   feet_cut: ['כפות הרגליים נחתכות — התרחק צעד או הטה את הטלפון מעט למטה', 'לא רואים את כפות הרגליים. צעד אחורה'],
   too_far: ['התקרב — המצלמה צריכה לראות את כף הרגל מקרוב', 'עוד קצת קדימה, שכף הרגל תמלא את הפריים'],
 };
+// Sticky boolean over a noisy per-frame signal: turns ON at ≥65% of the
+// last 15 frames, OFF at ≤35% — around the boundary it HOLDS, so a
+// marginal detection can never flip-flop the flow or the voice.
+class Presence {
+  constructor() { this.hist = []; this.on = false; }
+  feed(x) {
+    this.hist.push(x ? 1 : 0);
+    if (this.hist.length > 15) this.hist.shift();
+    const r = this.hist.reduce((a, b) => a + b, 0) / this.hist.length;
+    if (this.on) { if (r < 0.35) this.on = false; }
+    else if (r > 0.65) this.on = true;
+    return this.on;
+  }
+}
+
+// Advisory voice only: speaks a sight problem after it PERSISTS 2.5s,
+// repeats at most every 6s, and never gates or resets the flow.
 class SightCoach {
-  constructor(ui) { this.ui = ui; this.lastReason = null; this.lastSpokeAt = 0; this.hist = []; }
+  constructor(ui) { this.ui = ui; this.reason = null; this.reasonSince = 0; this.lastSpokeAt = 0; }
   feed(diag) {
     const now = Date.now();
-    // majority vote over the last 12 frames: a momentary tracking flicker
-    // must not reset the sync or trigger a nag
-    this.hist.push(diag.ok ? 1 : 0);
-    if (this.hist.length > 12) this.hist.shift();
-    const okRatio = this.hist.reduce((a, b) => a + b, 0) / this.hist.length;
-    if (okRatio >= 0.5) { this.lastReason = null; return true; }
-    if (diag.ok) return false; // bad majority but this frame fine — stay quiet
-    const changed = diag.reason !== this.lastReason;
-    if (changed || now - this.lastSpokeAt > 5000) {
+    if (diag.ok) { this.reason = null; return; }
+    if (diag.reason !== this.reason) { this.reason = diag.reason; this.reasonSince = now; return; }
+    if (now - this.reasonSince > 2500 && now - this.lastSpokeAt > 6000) {
       const lines = SIGHT_LINES[diag.reason] || SIGHT_LINES.no_person;
-      const line = lines[Math.floor(now / 5000) % lines.length];
-      say(line, { force: changed });
+      const line = lines[Math.floor(now / 6000) % lines.length];
+      say(line, { force: true });
       this.ui.instr(line);
-      this.lastReason = diag.reason; this.lastSpokeAt = now;
+      this.lastSpokeAt = now;
     }
-    return false;
   }
 }
 
@@ -119,6 +129,7 @@ export class WalkScan {
     this.motionWin = []; this.pausedMs = 0; this.lastTick = 0; this.lastNagAt = 0;
     this.stateSince = Date.now();
     this.visibleSince = 0;
+    this.presence = new Presence();
     this.coach = new SightCoach(ui);
     this.ui.instr('עמוד מול המצלמה');
   }
@@ -143,17 +154,23 @@ export class WalkScan {
   frame(lms) {
     const diag = P.diagnose(lms);
     switch (this.state) {
-      case 'FIND':
-        if (this.coach.feed(diag)) {
+      case 'FIND': {
+        const present = this.presence.feed(!!lms && diag.reason !== 'no_person');
+        if (present) {
           if (!this.visibleSince) {
             this.visibleSince = Date.now();
             this.ui.instr('רואים אותך ✓');
             say('אני רואה אותך. עמוד רגע במקום', { force: true });
           }
-          if (Date.now() - this.visibleSince > 1200)
+          this.coach.feed(diag); // advisory only
+          if (Date.now() - this.visibleSince > 1500)
             this.setState('SYNC', 'מסונכרן ✓', 'מסונכרן');
-        } else this.visibleSince = 0;
+        } else {
+          this.visibleSince = 0;
+          this.coach.feed({ ok: false, reason: 'no_person' });
+        }
         break;
+      }
       case 'SYNC':
         if (this.sinceMs() > 800 && speechIdle()) {
           this.t0 = Date.now();
@@ -287,6 +304,7 @@ export class ArchTest {
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.coach = new SightCoach(ui);
+    this.quality = new Presence();
     this.name = side === 'R' ? 'ימין' : 'שמאל';
     this.otherName = side === 'R' ? 'שמאל' : 'ימין';
     this.ui.instr('התקרב — שכף הרגל והקרסול ימלאו את הפריים');
@@ -327,15 +345,19 @@ export class ArchTest {
     const diag = P.archDiagnose(lms);
     switch (this.state) {
       case 'FIND':
-        if (this.coach.feed(diag)) {
+        if (this.quality.feed(!!lms && diag.ok)) {
           if (!this.visibleSince) this.visibleSince = Date.now();
           this.ui.instr('רואים אותך ✓');
+          this.coach.feed(diag);
           if (Date.now() - this.visibleSince > 1000) {
             this.setState('PROFILE');
             this.ui.instr(`עמוד בפרופיל — צד ${this.otherName} למצלמה`);
             say(`מסונכרן. עמוד בפרופיל, כשצד ${this.otherName} שלך פונה למצלמה, על שתי הרגליים. ככה רואים את הקשת הפנימית של רגל ${this.name}`, { force: true });
           }
-        } else this.visibleSince = 0;
+        } else {
+          this.visibleSince = 0;
+          this.coach.feed(lms ? diag : { ok: false, reason: 'no_person' });
+        }
         break;
       case 'PROFILE': {
         if (!lms) break;
