@@ -258,34 +258,44 @@ function analyzeGait(rec) {
   });
   const sep = sm(rec.map(f => f.sep), 2);
   const scale = sm(rec.map(f => f.scale), 5);
-  const toward = rec.map((_, i) => {
-    const j = Math.max(0, i - 10);
-    return scale[i] > scale[j] * 1.01;
-  });
+  // walking DIRECTION per frame, from the scale slope: toward the camera
+  // the figure grows, away it shrinks — never guessed, always measured
+  const toward = rec.map((_, i) => scale[i] > scale[Math.max(0, i - 10)] * 1.01);
+  const away = rec.map((_, i) => scale[i] < scale[Math.max(0, i - 10)] * 0.99);
   // single-support threshold RELATIVE to this recording's own separation
   // range — an absolute constant breaks across stride widths and framings
   const lo = Math.min(...sep), hi = Math.max(...sep);
   const thr = lo + (hi - lo) * 0.3;
-  const idx = [];
-  for (let i = 3; i < rec.length - 3; i++) {
-    if (!toward[i]) continue;
-    if (sep[i] <= sep[i - 1] && sep[i] <= sep[i - 2] && sep[i] < sep[i + 1] && sep[i] < sep[i + 2]
-        && sep[i] < thr) {
-      if (!idx.length || rec[i].t - rec[idx[idx.length - 1]].t > 350) idx.push(i);
+  const minima = mask => {
+    const idx = [];
+    for (let i = 3; i < rec.length - 3; i++) {
+      if (!mask[i]) continue;
+      if (sep[i] <= sep[i - 1] && sep[i] <= sep[i - 2] && sep[i] < sep[i + 1] && sep[i] < sep[i + 2]
+          && sep[i] < thr) {
+        if (!idx.length || rec[i].t - rec[idx[idx.length - 1]].t > 350) idx.push(i);
+      }
     }
-  }
-  if (idx.length < 3) return empty;
+    return idx;
+  };
+  // Achilles is read from the POSTERIOR view — walking away from the
+  // camera (the classic clinical rearfoot view); the knee axis from the
+  // frontal view — walking toward the camera.
+  const idxAway = minima(away), idxToward = minima(toward);
+  const achIdx = idxAway.length >= 3 ? idxAway : idxToward;
+  const kneeIdx = idxToward.length >= 3 ? idxToward : idxAway;
+  const cycles = idxAway.length + idxToward.length;
+  if (cycles < 3 || !achIdx.length || !kneeIdx.length) return empty;
   const med = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
   const worstThird = a => {
     const s = [...a].sort((x, y) => y - x);
     const tail = s.slice(0, Math.max(2, Math.floor(s.length / 3)));
     return med(tail);
   };
-  const pick = k => idx.map(i => rec[i][k]);
+  const pick = (idx, k) => idx.map(i => rec[i][k]);
   return {
-    R: { ach: +worstThird(pick('aR')).toFixed(1), knee: +med(pick('kR')).toFixed(1) },
-    L: { ach: +worstThird(pick('aL')).toFixed(1), knee: +med(pick('kL')).toFixed(1) },
-    cycles: idx.length,
+    R: { ach: +worstThird(pick(achIdx, 'aR')).toFixed(1), knee: +med(pick(kneeIdx, 'kR')).toFixed(1) },
+    L: { ach: +worstThird(pick(achIdx, 'aL')).toFixed(1), knee: +med(pick(kneeIdx, 'kL')).toFixed(1) },
+    cycles,
   };
 }
 
