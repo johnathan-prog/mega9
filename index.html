@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית</small></div>
+    <div class="progress"><i id="pbar"></i></div>
+    <span class="step-label" id="plabel"></span>
+  </header>
+
+  <!-- INTRO -->
+  <section class="screen on" id="s-intro">
+    <div class="card center">
+      <h1>ניתוח הליכה ממוחשב מהבית</h1>
+      <p class="sub">7 דקות, טלפון אחד — ומדרס אורטופדי שמותאם בדיוק לכף הרגל שלך. סריקה בהליכה, אבחון מיידי, משלוח עד הבית.</p>
+      <button class="btn" data-go="quiz">מתחילים בשאלון</button>
+    </div>
+    <p class="note" id="compatNote"></p>
+  </section>
+
+  <!-- QUESTIONNAIRE -->
+  <section class="screen" id="s-quiz">
+    <div class="card">
+      <div class="qnum" id="qnum"></div>
+      <h2 id="qtitle"></h2>
+      <p class="sub" id="qsub"></p>
+      <div class="choices" id="qchoices"></div>
+      <button class="btn" id="qnext" hidden>המשך</button>
+    </div>
+  </section>
+
+  <!-- SCAN SETUP (reused per stage) -->
+  <section class="screen" id="s-setup">
+    <h2 id="setupTitle"></h2>
+    <p class="sub" id="setupSub"></p>
+    <div id="setupSteps"></div>
+    <button class="btn" id="setupStart">הפעל מצלמה והתחל</button>
+    <p class="note">האפליקציה מדריכה אותך בקול ובמסך — פשוט תקשיב ותלך.</p>
+  </section>
+
+  <!-- LIVE SCAN -->
+  <section class="screen" id="s-scan">
+    <div class="scanbox">
+      <video id="cam" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud">
+        <span class="tag" id="scanTag">מאתחל מצלמה…</span>
+        <div class="angles" id="angleHud" hidden>
+          <span class="ang">גיד אכילס<b id="hAch">–</b></span>
+          <span class="ang">זווית ברך<b id="hKnee">–</b></span>
+        </div>
+      </div>
+      <div class="instruction" id="bigInstr"></div>
+    </div>
+    <div class="gauge"><i id="scanGauge"></i></div>
+    <div class="hint" id="scanHint"></div>
+    <button class="btn ghost" id="scanAbort">בטל סריקה</button>
+  </section>
+
+  <!-- MEASURE -->
+  <section class="screen" id="s-measure">
+    <h2>מידות כף הרגל</h2>
+    <p class="sub">מדוד עם סרגל או סרט מדידה, בעמידה מלאה על הרגל.</p>
+    <div class="card">
+      <strong>רגל ימין</strong>
+      <div class="rowgrid">
+        <label class="f">אורך (ס״מ)<input class="t" id="mRL" type="number" step="0.1" inputmode="decimal" placeholder="26.5"></label>
+        <label class="f">רוחב (ס״מ)<input class="t" id="mRW" type="number" step="0.1" inputmode="decimal" placeholder="10.2"></label>
+      </div>
+    </div>
+    <div class="card">
+      <strong>רגל שמאל</strong>
+      <div class="rowgrid">
+        <label class="f">אורך (ס״מ)<input class="t" id="mLL" type="number" step="0.1" inputmode="decimal" placeholder="26.3"></label>
+        <label class="f">רוחב (ס״מ)<input class="t" id="mLW" type="number" step="0.1" inputmode="decimal" placeholder="10.4"></label>
+      </div>
+    </div>
+    <button class="btn" id="analyzeBtn">חשב אבחון</button>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="screen" id="s-results">
+    <h2>תוצאות האבחון שלך</h2>
+    <p class="sub">מבוסס על מעברי ההליכה, מבחן ההעמסה לכל רגל והשאלון.</p>
+    <div id="results"></div>
+    <div class="explain" id="logicLine"></div>
+    <button class="btn" data-go="pay">למדרס המומלץ שלי</button>
+  </section>
+
+  <!-- PAY -->
+  <section class="screen" id="s-pay">
+    <h2>המדרס שהותאם לך</h2>
+    <div class="card">
+      <div id="recSpec"></div>
+      <div class="price"><span>זוג מדרסים בהתאמה אישית</span><b>₪690</b></div>
+      <p class="small">כולל משלוח עד הבית · התאמה חוזרת חינם תוך 30 יום</p>
+    </div>
+    <div class="card paygrid" id="payBox">
+      <strong>תשלום מאובטח</strong>
+      <p class="small">כאן משתלב ספק הסליקה (Grow / Tranzila / Stripe) — iframe או redirect חתום.</p>
+      <button class="btn" id="payBtn">מעבר לתשלום · ₪690</button>
+    </div>
+  </section>
+
+  <!-- DONE -->
+  <section class="screen" id="s-done">
+    <div class="card center">
+      <div class="okball">✓</div>
+      <h2>ההזמנה התקבלה!</h2>
+      <p class="sub">המדרסים שלך נכנסו לייצור לפי מפרט הסריקה. משלוח תוך 7–10 ימי עסקים. אישור נשלח ב־SMS ובוואטסאפ.</p>
+    </div>
+  </section>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
