@@ -173,3 +173,15 @@ export function legLifted(lms) {
 export function approachLevel(lms) {
   return Math.max(lms[LM.R_HEEL].y, lms[LM.L_HEEL].y);
 }
+
+// Apparent leg scale in frame (hip→heel length). Shrinks as the person
+// walks away, grows as they approach — and unlike nose-based height it
+// works with the back to the camera. Returns null when legs aren't tracked.
+export function legScale(lms) {
+  const vis = i => (lms[i].visibility ?? 1);
+  if (vis(LM.L_HIP) < 0.3 || vis(LM.R_HIP) < 0.3) return null;
+  const l = Math.hypot(lms[LM.L_HIP].x - lms[LM.L_HEEL].x, lms[LM.L_HIP].y - lms[LM.L_HEEL].y);
+  const r = Math.hypot(lms[LM.R_HIP].x - lms[LM.R_HEEL].x, lms[LM.R_HIP].y - lms[LM.R_HEEL].y);
+  const s = (l + r) / 2;
+  return s > 1e-3 ? s : null;
+}
