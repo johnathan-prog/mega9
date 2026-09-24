@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=18';
+import * as P from './posemath.js?v=19';
 
 let hebVoice = null;
 function pickVoice() {
@@ -31,7 +31,7 @@ export function primeTTS() {
    only an URGENT line (a correction, "stop") interrupts mid-utterance.
    State machines gate their transitions on speechIdle() so the guide
    never talks over itself — this is what makes the voice calm. */
-export const SPEECH_GAP = { ms: 300 };
+export const SPEECH_GAP = { ms: 120 };
 const speech = {
   q: [], speaking: false, lastText: '', lastAt: 0,
   idle() { return !this.speaking && this.q.length === 0; },
@@ -116,7 +116,7 @@ export class WalkScan {
     this.rec = [];               // per-frame recording
     this.t0 = 0;
     this.extended = false;
-    this.encouraged = false;
+    this.motionWin = []; this.pausedMs = 0; this.lastTick = 0; this.lastNagAt = 0;
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.coach = new SightCoach(ui);
@@ -162,31 +162,42 @@ export class WalkScan {
         }
         break;
       case 'RECORD': {
-        const el = Date.now() - this.t0;
-        // record every trackable frame
-        if (lms && diag.ok) {
+        const now = Date.now();
+        // is the person actually MOVING? (leg scale + ankle swing over ~1.5s)
+        const scl = lms ? P.legScale(lms) : null;
+        if (scl) this.motionWin.push({ at: now, v: scl, sep: this.sep(lms) });
+        while (this.motionWin.length && now - this.motionWin[0].at > 1500) this.motionWin.shift();
+        const vs = this.motionWin.map(m => m.v), ss = this.motionWin.map(m => m.sep);
+        const moving = vs.length > 8 &&
+          (Math.max(...vs) - Math.min(...vs) > 0.03 || Math.max(...ss) - Math.min(...ss) > 0.08);
+
+        // the recording clock RUNS ONLY WHILE someone is walking in frame —
+        // sitting still or leaving the frame pauses it (never a blind timer)
+        if (!moving || !lms) {
+          this.pausedMs += now - (this.lastTick || now);
+          if (now - this.lastNagAt > 8000) {
+            this.lastNagAt = now;
+            say(lms ? 'אני לא רואה תנועה — לך הלוך ושוב בבקשה' : 'אני לא רואה אותך — חזור לפריים והמשך ללכת', { force: true });
+          }
+        } else if (lms && diag.ok) {
           this.rec.push({
-            t: el,
+            t: now - this.t0 - this.pausedMs,
             sep: this.sep(lms),
-            scale: P.legScale(lms) || 0,
+            scale: scl || 0,
             aR: Math.abs(P.achillesDeviation(lms, 'R')),
             aL: Math.abs(P.achillesDeviation(lms, 'L')),
             kR: P.kneeAxis(lms, 'R'),
             kL: P.kneeAxis(lms, 'L'),
           });
-        } else if (diag.reason === 'no_person') {
-          this.coach.feed(diag); // walked out of frame — call it out
         }
+        this.lastTick = now;
+        const el = now - this.t0 - this.pausedMs;
         const total = RECORD_MS + (this.extended ? EXTEND_MS : 0);
-        if (!this.encouraged && el > total * 0.5) {
-          this.encouraged = true;
-          say('מעולה, תמשיך ככה', { force: true });
-        }
-        this.ui.instr(`מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))} שניות`);
+        this.ui.instr(moving ? `מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))} שניות` : 'לך הלוך ושוב');
         if (el >= total) {
           const a = analyzeGait(this.rec);
           if (a.cycles < 6 && !this.extended) {
-            this.extended = true; this.encouraged = false;
+            this.extended = true;
             say('עוד כמה שניות, המשך ללכת הלוך ושוב', { force: true });
           } else {
             say('עצור', { urgent: true });

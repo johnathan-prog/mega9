@@ -186,5 +186,19 @@ const ui = () => ({ instr() {}, tag() {} });
     E.classify({ ach: 4.5, knee: 2, collapse: 30 }).cls === 'low');
 }
 
+// ================= T6: sitting still must NOT complete the scan =================
+{
+  console.log('T6 blind-clock guard');
+  const m = new G.WalkScan({ ui: ui() });
+  for (let i = 0; i < 80 && m.state !== 'RECORD'; i++)
+    await tick(m, person({ dist: 2 }));
+  check('reaches RECORD', m.state === 'RECORD', `state=${m.state}`);
+  spoken.length = 0;
+  for (let i = 0; i < 900; i++) await tick(m, person({ dist: 2 })); // ~30s static
+  check('static person does not finish the scan', !m.done, `state=${m.state}`);
+  check('voice asks for movement', spoken.some(s => s.includes('תנועה') || s.includes('הלוך ושוב')),
+    JSON.stringify(spoken.slice(0, 3)));
+}
+
 console.log(failures ? `\n${failures} FAILURES` : '\nALL GREEN');
 process.exit(failures ? 1 : 0);
