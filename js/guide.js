@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=11';
+import * as P from './pose.js?v=12';
 
 let hebVoice = null;
 function pickVoice() {
@@ -91,6 +91,37 @@ class SightCoach {
   }
 }
 
+const HEB_COUNT = ['אחת', 'שתיים', 'שלוש', 'ארבע', 'חמש', 'שש', 'שבע', 'שמונה', 'תשע', 'עשר'];
+
+// ---------- step counter ----------
+// Real step detection: the ankles separate and close once per step. The
+// separation signal is normalized by the walker's leg scale in frame, so
+// the same threshold works near and far. Peak detection with smoothing,
+// hysteresis and a minimum interval kills double counts.
+class StepCounter {
+  constructor() { this.smooth = null; this.dir = 0; this.steps = 0; this.lastStepAt = 0; }
+  feed(lms) {
+    const scale = P.legScale(lms);
+    if (!scale) return false;
+    const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
+    const sep = Math.hypot(la.x - ra.x, la.y - ra.y) / scale;
+    if (this.smooth == null) { this.smooth = sep; return false; }
+    const prev = this.smooth;
+    this.smooth = prev * 0.55 + sep * 0.45;
+    let stepped = false;
+    if (this.smooth > prev + 0.006) this.dir = 1;
+    else if (this.smooth < prev - 0.006 && this.dir === 1) {
+      // a peak just passed; count it if the swing was a real stride
+      if (prev > 0.18 && Date.now() - this.lastStepAt > 380) {
+        this.steps++; this.lastStepAt = Date.now(); stepped = true;
+      }
+      this.dir = -1;
+    }
+    return stepped;
+  }
+  reset() { this.smooth = null; this.dir = 0; this.steps = 0; this.lastStepAt = 0; }
+}
+
 // ---------- walking scan (ankle height) ----------
 // Timed protocol — no step counting (it was unreliable):
 //   sight-synced facing the camera → turn, back to camera → walk until
@@ -105,6 +136,7 @@ export class WalkScan {
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.faceFrames = 0;
+    this.counter = new StepCounter();
     this.coach = new SightCoach(ui);
     this.ui.instr('עמוד מול המצלמה');
   }
@@ -153,33 +185,32 @@ export class WalkScan {
         if (lms && P.facing(lms) === 'back') this.faceFrames++;
         else this.faceFrames = 0;
         if (this.faceFrames >= 8 && speechIdle()) {
-          this.walkBase = null; this.reminded = false;
-          this.setState('WALK_AWAY', 'לך קדימה — אני אגיד מתי לעצור', 'יופי. לך קדימה בקצב רגיל, אני אגיד לך מתי לעצור');
+          this.walkBase = null; this.reminded = false; this.counter.reset();
+          this.setState('WALK_AWAY', 'קח 5 צעדים קדימה', 'יופי. קח חמישה צעדים קדימה, אני סופר איתך');
         } else if (this.sinceMs() > 7000 && speechIdle()) {
           say('אני עדיין רואה אותך מקדימה — הסתובב, גב למצלמה', { force: true });
           this.stateSince = Date.now();
         }
         break;
       case 'WALK_AWAY': {
-        // sight-driven stop: the walker's apparent leg scale shrinks as
-        // they move away; stop only once they have actually covered ground.
+        // real detection: count five actual steps, spoken as they land
         if (!diag.ok && diag.reason === 'no_person')
           this.coach.feed(diag); // walked out of frame — call it out
-        const scale = lms ? P.legScale(lms) : null;
-        if (scale) {
-          this.walkBase = Math.max(this.walkBase || 0, scale);
-          const ratio = scale / this.walkBase;
-          if (ratio < 0.72 && this.sinceMs() > 2000) {
-            say('עצור', { urgent: true });
-            this.setState('STOP', 'עצור', null);
-            break;
-          }
-          if (!this.reminded && this.sinceMs() > 4000 && ratio > 0.93) {
-            this.reminded = true;
-            say('לך קדימה, תתרחק מהמצלמה', { force: true });
-          }
+        if (lms && this.counter.feed(lms)) {
+          const n = this.counter.steps;
+          say(HEB_COUNT[n - 1] || String(n), { force: true });
         }
-        if (this.sinceMs() > 12000) { // fallback so nobody gets stuck
+        this.ui.instr(`צעד ${Math.min(this.counter.steps, 5)} מתוך 5`);
+        if (this.counter.steps >= 5) {
+          say('עצור', { urgent: true });
+          this.setState('STOP', 'עצור', null);
+          break;
+        }
+        if (!this.reminded && this.sinceMs() > 5000 && this.counter.steps === 0) {
+          this.reminded = true;
+          say('לך קדימה, תתרחק מהמצלמה', { force: true });
+        }
+        if (this.sinceMs() > 15000) { // safety net so nobody gets stuck
           say('עצור', { urgent: true });
           this.setState('STOP', 'עצור', null);
         }
@@ -194,8 +225,8 @@ export class WalkScan {
         if (lms && P.facing(lms) === 'front') this.faceFrames++;
         else this.faceFrames = 0;
         if (this.faceFrames >= 8 && speechIdle()) {
-          this.walkBase = null; this.reminded = false;
-          this.setState('WALK_TOWARD', 'לך ישר אל המצלמה', 'יופי. עכשיו לך ישר אל המצלמה, בקצב רגיל, עד שאגיד עצור');
+          this.walkBase = null; this.reminded = false; this.counter.reset();
+          this.setState('WALK_TOWARD', 'קח 5 צעדים אל המצלמה', 'יופי. עכשיו קח חמישה צעדים ישר אל המצלמה, אני סופר איתך');
         } else if (this.sinceMs() > 7000 && speechIdle()) {
           say('הסתובב אליי — אני עדיין לא רואה את הפנים שלך', { force: true });
           this.stateSince = Date.now();
@@ -203,19 +234,18 @@ export class WalkScan {
         break;
       case 'WALK_TOWARD': {
         if (lms && diag.ok) this.sampleAngles(lms);
-        const scale = lms ? P.legScale(lms) : null;
-        if (scale) {
-          this.walkBase = Math.min(this.walkBase || Infinity, scale);
-          if (!this.reminded && this.sinceMs() > 4000 && scale / this.walkBase < 1.08) {
-            this.reminded = true;
-            say('המשך ללכת ישר אל המצלמה', { force: true });
-          }
+        if (lms && this.counter.feed(lms)) {
+          const n = this.counter.steps;
+          say(HEB_COUNT[n - 1] || String(n), { force: true });
         }
-        // stop from what the camera sees: heels reached the lower frame,
-        // or the walker has clearly closed most of the distance
-        const arrived = lms && (P.approachLevel(lms) > 0.9 ||
-          (scale && this.walkBase && scale / this.walkBase > 1.6));
-        if ((arrived && this.sinceMs() > 2000) || this.sinceMs() > 12000) {
+        this.ui.instr(`צעד ${Math.min(this.counter.steps, 5)} מתוך 5`);
+        if (!this.reminded && this.sinceMs() > 5000 && this.counter.steps === 0) {
+          this.reminded = true;
+          say('המשך ללכת ישר אל המצלמה', { force: true });
+        }
+        // five real steps, or the walker physically arrived at the camera
+        const arrived = lms && P.approachLevel(lms) > 0.92;
+        if (this.counter.steps >= 5 || (arrived && this.sinceMs() > 2000) || this.sinceMs() > 15000) {
           say('עצור', { urgent: true });
           this.setState('DONE', 'עצור — מעולה! השלב הושלם', 'מעולה, השלב הושלם');
         }
