@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=14';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=14';
-import { classify, LOGIC_LINE } from './engine.js?v=14';
+import * as P from './pose.js?v=15';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=15';
+import { classify, LOGIC_LINE } from './engine.js?v=15';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -80,7 +80,7 @@ const STAGES = [
     sub: 'המצלמה עוקבת אחרי גיד אכילס, העקב וציר הברך בזמן הליכה.',
     steps: ['הנח את הטלפון יציב בגובה הקרסול (נשען על משהו), מסך אליך',
             'התרחק יחף, במכנסיים קצרים או מופשלים, עד שרואים אותך מהרצפה עד המותן',
-            'ההדרכה הקולית מגיבה למה שהמצלמה רואה: הסתובב, לך, עצור, חזור אל המצלמה'] },
+            'פשוט תלך הלוך ושוב טבעי כ־20 שניות — ההקלטה מנותחת אוטומטית, מחזורי הליכה נקיים בלבד'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
     steps: ['הטלפון נשאר בגובה קרסול — והפעם קרוב: מטר עד מטר וחצי, פריים מהרצפה עד הברכיים', 'עמוד בפרופיל כשצד שמאל למצלמה — מרימים את שמאל ורואים את הקשת הפנימית של ימין', 'עקוב אחרי ההנחיות הקוליות'] },

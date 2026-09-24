@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=14';
+import * as P from './pose.js?v=15';
 
 let hebVoice = null;
 function pickVoice() {
@@ -124,26 +124,27 @@ class StepCounter {
 }
 
 // ---------- walking scan (ankle height) ----------
-// Timed protocol — no step counting (it was unreliable):
-//   sight-synced facing the camera → turn, back to camera → walk until
-//   told to stop → turn, face camera → walk toward the camera; the stop
-//   is called from what the camera sees (heels reaching the lower frame),
-//   with a time fallback. Angles sampled on the walk-toward leg.
+// Industry-standard protocol (as in commercial smartphone gait analysis):
+// the user simply walks back and forth NATURALLY for a fixed recording
+// window while every frame's landmarks are recorded; the analysis happens
+// AFTERWARD on the whole recording — gait cycles are segmented, angles
+// are sampled at single-support instants of the walking-toward segments,
+// outlier cycles are discarded, and a minimum cycle count is enforced
+// (the recording auto-extends once if too few clean cycles were caught).
+// Live voice is used only for setup coaching and start/stop — never to
+// choreograph individual steps.
+const RECORD_MS = 20000;
+const EXTEND_MS = 8000;
 export class WalkScan {
   constructor({ ui }) {
     this.ui = ui;
     this.state = 'FIND';
-    this.samples = { R: { ach: [], knee: [] }, L: { ach: [], knee: [] } };
+    this.rec = [];               // per-frame recording
+    this.t0 = 0;
+    this.extended = false;
+    this.encouraged = false;
     this.stateSince = Date.now();
     this.visibleSince = 0;
-    this.faceFrames = 0;
-    // Whether face landmarks were EVER reliably seen while the user faced
-    // the camera. At 3-4m from an ankle-height camera the face can be too
-    // small to detect at all — then "no face" does NOT mean "back turned",
-    // and orientation must fall back to giving the user real time to turn.
-    this.faceSeen = false;
-    this.entryScale = null; this.settleUntil = 0;
-    this.counter = new StepCounter();
     this.coach = new SightCoach(ui);
     this.ui.instr('עמוד מול המצלמה');
   }
@@ -157,14 +158,13 @@ export class WalkScan {
   sinceMs() { return Date.now() - this.stateSince; }
   get done() { return this.state === 'DONE'; }
   progress() {
-    const map = { FIND: .05, SYNC: .15, TURN_BACK: .25, WALK_AWAY: .4, STOP: .55, TURN_FACE: .65, WALK_TOWARD: .8, DONE: 1 };
-    return map[this.state] ?? 0;
-  }
-  sampleAngles(lms) {
-    for (const side of ['R', 'L']) {
-      this.samples[side].ach.push(Math.abs(P.achillesDeviation(lms, side)));
-      this.samples[side].knee.push(P.kneeAxis(lms, side));
+    if (this.state === 'FIND') return 0.05;
+    if (this.state === 'SYNC') return 0.12;
+    if (this.state === 'RECORD') {
+      const total = RECORD_MS + (this.extended ? EXTEND_MS : 0);
+      return 0.15 + 0.85 * Math.min(1, (Date.now() - this.t0) / total);
     }
+    return 1;
   }
   frame(lms) {
     const diag = P.diagnose(lms);
@@ -174,139 +174,109 @@ export class WalkScan {
           if (!this.visibleSince) {
             this.visibleSince = Date.now();
             this.ui.instr('רואים אותך ✓');
-            say('אני רואה אותך, מהרצפה עד המותן. עמוד רגע במקום', { force: true });
+            say('אני רואה אותך. עמוד רגע במקום', { force: true });
           }
-          if (Date.now() - this.visibleSince > 1500)
+          if (Date.now() - this.visibleSince > 1200)
             this.setState('SYNC', 'מסונכרן ✓', 'מסונכרן');
         } else this.visibleSince = 0;
         break;
       case 'SYNC':
-        if (diag.ok && lms) this.sampleAngles(lms);
-        if (lms && P.facing(lms) === 'front') this.faceSeen = true;
-        if (this.sinceMs() > 1000 && speechIdle()) {
-          this.faceFrames = 0;
-          this.setState('TURN_BACK', 'הסתובב — גב למצלמה', 'עכשיו הסתובב, גב למצלמה');
+        if (this.sinceMs() > 800 && speechIdle()) {
+          this.t0 = Date.now();
+          this.setState('RECORD', 'לך הלוך ושוב, טבעי, עד שאגיד עצור',
+            'עכשיו פשוט לך הלוך ושוב לאורך החדר, בקצב טבעי שלך. אל תסתכל על הטלפון — אני מקליט ואגיד לך מתי לעצור');
         }
         break;
-      case 'TURN_BACK': {
-        // Orientation is trusted only if the face was actually detectable
-        // facing the camera; otherwise "no face" proves nothing and the
-        // user simply gets real time to complete the turn.
-        let turned;
-        if (this.faceSeen) {
-          if (lms && P.facing(lms) === 'back') this.faceFrames++;
-          else this.faceFrames = 0;
-          turned = this.faceFrames >= 8;
-        } else turned = this.sinceMs() > 4000;
-        if (turned && speechIdle()) {
-          this.reminded = false; this.counter.reset();
-          this.entryScale = null; this.settleUntil = Date.now() + 1500;
-          this.setState('WALK_AWAY', 'קח 5 צעדים קדימה', 'יופי. קח חמישה צעדים קדימה, אני סופר איתך');
-        } else if (this.sinceMs() > 9000 && speechIdle()) {
-          say('הסתובב, גב למצלמה', { force: true });
-          this.stateSince = Date.now();
-        }
-        break;
-      }
-      case 'WALK_AWAY': {
-        // count five actual steps — but only once the turn has settled and
-        // only while the walker is genuinely receding (leg scale shrinking),
-        // so turn jitter can never be counted as steps.
-        if (!diag.ok && diag.reason === 'no_person')
+      case 'RECORD': {
+        const el = Date.now() - this.t0;
+        // record every trackable frame
+        if (lms && diag.ok) {
+          this.rec.push({
+            t: el,
+            sep: this.sep(lms),
+            scale: P.legScale(lms) || 0,
+            aR: Math.abs(P.achillesDeviation(lms, 'R')),
+            aL: Math.abs(P.achillesDeviation(lms, 'L')),
+            kR: P.kneeAxis(lms, 'R'),
+            kL: P.kneeAxis(lms, 'L'),
+          });
+        } else if (diag.reason === 'no_person') {
           this.coach.feed(diag); // walked out of frame — call it out
-        const scale = lms ? P.legScale(lms) : null;
-        if (scale && Date.now() < this.settleUntil) {
-          this.entryScale = Math.max(this.entryScale ?? 0, scale);
-        } else if (lms && scale && this.entryScale &&
-                   scale < this.entryScale * 0.985 && this.counter.feed(lms)) {
-          const n = this.counter.steps;
-          say(HEB_COUNT[n - 1] || String(n), { force: true });
         }
-        this.ui.instr(`צעד ${Math.min(this.counter.steps, 5)} מתוך 5`);
-        if (this.counter.steps >= 5) {
-          say('עצור', { urgent: true });
-          this.setState('STOP', 'עצור', null);
-          break;
+        const total = RECORD_MS + (this.extended ? EXTEND_MS : 0);
+        if (!this.encouraged && el > total * 0.5) {
+          this.encouraged = true;
+          say('מעולה, תמשיך ככה', { force: true });
         }
-        if (!this.reminded && this.sinceMs() > 6000 && this.counter.steps === 0) {
-          this.reminded = true;
-          say('לך קדימה, תתרחק מהמצלמה', { force: true });
-        }
-        if (this.sinceMs() > 15000) { // safety net so nobody gets stuck
-          say('עצור', { urgent: true });
-          this.setState('STOP', 'עצור', null);
-        }
-        break;
-      }
-      case 'STOP':
-        if (this.sinceMs() > 1200 && speechIdle())
-          this.setState('TURN_FACE', 'הסתובב — פנים למצלמה', 'עכשיו הסתובב, פנים למצלמה');
-        break;
-      case 'TURN_FACE': {
-        // The walker is far now, so the face may be undetectable even when
-        // they have turned — trust it only if it was detectable before.
-        let turned;
-        if (this.faceSeen) {
-          if (lms && P.facing(lms) === 'front') this.faceFrames++;
-          else this.faceFrames = 0;
-          turned = this.faceFrames >= 8;
-        } else turned = this.sinceMs() > 4000;
-        if (turned && speechIdle()) {
-          this.reminded = false; this.counter.reset();
-          this.entryScale = null; this.settleUntil = Date.now() + 1500;
-          this.setState('WALK_TOWARD', 'קח 5 צעדים אל המצלמה', 'יופי. עכשיו קח חמישה צעדים ישר אל המצלמה, אני סופר איתך');
-        } else if (this.sinceMs() > 9000 && speechIdle()) {
-          say('הסתובב — פנים למצלמה', { force: true });
-          this.stateSince = Date.now();
-        }
-        break;
-      }
-      case 'WALK_TOWARD': {
-        if (lms && diag.ok) this.sampleAngles(lms);
-        // count only while genuinely approaching (leg scale growing)
-        const scale = lms ? P.legScale(lms) : null;
-        if (scale && Date.now() < this.settleUntil) {
-          this.entryScale = Math.min(this.entryScale ?? Infinity, scale);
-        } else if (lms && scale && this.entryScale &&
-                   scale > this.entryScale * 1.015 && this.counter.feed(lms)) {
-          const n = this.counter.steps;
-          say(HEB_COUNT[n - 1] || String(n), { force: true });
-        }
-        this.ui.instr(`צעד ${Math.min(this.counter.steps, 5)} מתוך 5`);
-        if (!this.reminded && this.sinceMs() > 6000 && this.counter.steps === 0) {
-          this.reminded = true;
-          say('המשך ללכת ישר אל המצלמה', { force: true });
-        }
-        // five real steps, or the walker physically arrived at the camera
-        const arrived = lms && P.approachLevel(lms) > 0.92;
-        if (this.counter.steps >= 5 || (arrived && this.sinceMs() > 2000) || this.sinceMs() > 15000) {
-          say('עצור', { urgent: true });
-          this.setState('DONE', 'עצור — מעולה! השלב הושלם', 'מעולה, השלב הושלם');
+        this.ui.instr(`מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))} שניות`);
+        if (el >= total) {
+          const a = analyzeGait(this.rec);
+          if (a.cycles < 6 && !this.extended) {
+            this.extended = true; this.encouraged = false;
+            say('עוד כמה שניות, המשך ללכת הלוך ושוב', { force: true });
+          } else {
+            say('עצור', { urgent: true });
+            this.setState('DONE', 'מעולה! השלב הושלם', 'מעולה, השלב הושלם');
+          }
         }
         break;
       }
     }
   }
-  // Robust aggregate: median of the worst (highest-deviation) third —
-  // gait deviation peaks at mid-stance, so the tail carries the signal.
-  result() {
-    const agg = a => {
-      if (!a.length) return 0;
-      const s = [...a].sort((x, y) => y - x);
-      const tail = s.slice(0, Math.max(3, Math.floor(s.length / 3)));
-      return +tail[Math.floor(tail.length / 2)].toFixed(1);
-    };
-    const med = a => {
-      if (!a.length) return 0;
-      const s = [...a].sort((x, y) => x - y);
-      return +s[Math.floor(s.length / 2)].toFixed(1);
-    };
-    return {
-      R: { ach: agg(this.samples.R.ach), knee: med(this.samples.R.knee) },
-      L: { ach: agg(this.samples.L.ach), knee: med(this.samples.L.knee) },
-      frames: this.samples.R.ach.length,
-    };
+  sep(lms) {
+    const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
+    const sc = P.legScale(lms);
+    return sc ? Math.hypot(la.x - ra.x, la.y - ra.y) / sc : 0;
   }
+  result() {
+    const a = analyzeGait(this.rec);
+    return { R: a.R, L: a.L, frames: this.rec.length, cycles: a.cycles };
+  }
+}
+
+// Offline gait analysis over the whole recording:
+// 1. smooth the ankle-separation signal;
+// 2. keep only walking-toward-camera spans (leg scale rising over ~0.7s);
+// 3. single-support instants = local minima of ankle separation (feet
+//    passing, full weight on one leg) — the moment the Achilles line and
+//    knee axis are clinically read;
+// 4. per-instant angle samples → median per foot (outlier-robust),
+//    Achilles from the worst-third median (deviation peaks at mid-stance).
+function analyzeGait(rec) {
+  const empty = { R: { ach: 0, knee: 0 }, L: { ach: 0, knee: 0 }, cycles: 0 };
+  if (rec.length < 30) return empty;
+  const sm = (arr, k) => arr.map((_, i) => {
+    let s = 0, n = 0;
+    for (let j = Math.max(0, i - k); j <= Math.min(arr.length - 1, i + k); j++) { s += arr[j]; n++; }
+    return s / n;
+  });
+  const sep = sm(rec.map(f => f.sep), 2);
+  const scale = sm(rec.map(f => f.scale), 5);
+  const toward = rec.map((_, i) => {
+    const j = Math.max(0, i - 10);
+    return scale[i] > scale[j] * 1.01;
+  });
+  const idx = [];
+  for (let i = 3; i < rec.length - 3; i++) {
+    if (!toward[i]) continue;
+    if (sep[i] <= sep[i - 1] && sep[i] <= sep[i - 2] && sep[i] < sep[i + 1] && sep[i] < sep[i + 2]
+        && sep[i] < 0.14) {
+      if (!idx.length || rec[i].t - rec[idx[idx.length - 1]].t > 350) idx.push(i);
+    }
+  }
+  if (idx.length < 3) return empty;
+  const med = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  const worstThird = a => {
+    const s = [...a].sort((x, y) => y - x);
+    const tail = s.slice(0, Math.max(2, Math.floor(s.length / 3)));
+    return med(tail);
+  };
+  const pick = k => idx.map(i => rec[i][k]);
+  return {
+    R: { ach: +worstThird(pick('aR')).toFixed(1), knee: +med(pick('kR')).toFixed(1) },
+    L: { ach: +worstThird(pick('aL')).toFixed(1), knee: +med(pick('kL')).toFixed(1) },
+    cycles: idx.length,
+  };
 }
 
 // ---------- single-leg arch-loading test ----------
