@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=12';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=12';
-import { classify, LOGIC_LINE } from './engine.js?v=12';
+import * as P from './pose.js?v=13';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=13';
+import { classify, LOGIC_LINE } from './engine.js?v=13';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -83,10 +83,10 @@ const STAGES = [
             'ההדרכה הקולית מגיבה למה שהמצלמה רואה: הסתובב, לך, עצור, חזור אל המצלמה'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
-    steps: ['הטלפון נשאר בגובה קרסול', 'עמוד בפרופיל כשצד שמאל למצלמה — מרימים את שמאל ורואים את הקשת הפנימית של ימין', 'עקוב אחרי ההנחיות הקוליות'] },
+    steps: ['הטלפון נשאר בגובה קרסול — והפעם קרוב: מטר עד מטר וחצי, פריים מהרצפה עד הברכיים', 'עמוד בפרופיל כשצד שמאל למצלמה — מרימים את שמאל ורואים את הקשת הפנימית של ימין', 'עקוב אחרי ההנחיות הקוליות'] },
   { key: 'archL', title: 'מבחן קריסת קשת · רגל שמאל',
     sub: 'אותו מבחן לרגל שמאל.',
-    steps: ['הסתובב — צד ימין למצלמה, מרימים את ימין ורואים את הקשת הפנימית של שמאל', 'עקוב אחרי ההנחיות'] },
+    steps: ['נשארים קרוב — פריים מהרצפה עד הברכיים', 'הסתובב — צד ימין למצלמה, מרימים את ימין ורואים את הקשת הפנימית של שמאל', 'עקוב אחרי ההנחיות'] },
 ];
 let stageIdx = 0;
 const scanResults = {};

@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=12';
+import * as P from './pose.js?v=13';
 
 let hebVoice = null;
 function pickVoice() {
@@ -73,6 +73,7 @@ const SIGHT_LINES = {
   no_person: ['לא רואים אותך — היכנס לפריים', 'אני לא רואה אותך. עמוד מול המצלמה'],
   legs_hidden: ['התרחק מעט — צריך לראות את הרגליים עד הרצפה', 'עוד קצת אחורה, שאראה את הרגליים שלך במלואן'],
   feet_cut: ['כפות הרגליים נחתכות — התרחק צעד או הטה את הטלפון מעט למטה', 'לא רואים את כפות הרגליים. צעד אחורה'],
+  too_far: ['התקרב — המצלמה צריכה לראות את כף הרגל מקרוב', 'עוד קצת קדימה, שכף הרגל תמלא את הפריים'],
 };
 class SightCoach {
   constructor(ui) { this.ui = ui; this.lastReason = null; this.lastSpokeAt = 0; }
@@ -295,7 +296,7 @@ export class ArchTest {
     this.coach = new SightCoach(ui);
     this.name = side === 'R' ? 'ימין' : 'שמאל';
     this.otherName = side === 'R' ? 'שמאל' : 'ימין';
-    this.ui.instr('התרחק עד שרואים אותך מהרצפה עד המותן');
+    this.ui.instr('התקרב — שכף הרגל והקרסול ימלאו את הפריים');
   }
   setState(s) { this.state = s; this.stateSince = Date.now(); }
   sinceMs() { return Date.now() - this.stateSince; }
@@ -308,7 +309,8 @@ export class ArchTest {
     return 1;
   }
   frame(lms) {
-    const diag = P.diagnose(lms, { profile: true });
+    // arch framing: close-up, floor to the knees — the foot is the subject
+    const diag = P.archDiagnose(lms);
     switch (this.state) {
       case 'FIND':
         if (this.coach.feed(diag)) {

@@ -153,6 +153,27 @@ export function diagnose(lms, { profile = false } = {}) {
 export function lowerBodyVisible(lms) { return diagnose(lms).ok; }
 export function profileVisible(lms) { return diagnose(lms, { profile: true }).ok; }
 
+// Arch-test framing: the subject is the FOOT, so the camera should be
+// CLOSE — floor to the knees at most. Requires one leg's knee→ankle→
+// heel→toe chain in frame, the foot inside the frame bottom, and the
+// foot large enough in frame for arch resolution (else: come closer).
+export function archDiagnose(lms) {
+  if (!lms) return { ok: false, reason: 'no_person' };
+  const vis = i => (lms[i].visibility ?? 1);
+  const side = s => {
+    const [k, a, h, t] = s === 'R'
+      ? [LM.R_KNEE, LM.R_ANKLE, LM.R_HEEL, LM.R_TOE]
+      : [LM.L_KNEE, LM.L_ANKLE, LM.L_HEEL, LM.L_TOE];
+    return vis(k) > 0.35 && vis(a) > 0.4 && vis(h) > 0.3 && vis(t) > 0.3 ? { h, t } : null;
+  };
+  const leg = side('R') || side('L');
+  if (!leg) return { ok: false, reason: 'legs_hidden' };
+  if (lms[leg.h].y > 0.985 || lms[leg.t].y > 0.985) return { ok: false, reason: 'feet_cut' };
+  const footLen = Math.hypot(lms[leg.t].x - lms[leg.h].x, lms[leg.t].y - lms[leg.h].y);
+  if (footLen < 0.055) return { ok: false, reason: 'too_far' };
+  return { ok: true };
+}
+
 // The standing (loaded) foot right now: the LOWER ankle (y grows down).
 export function standingSide(lms) {
   return lms[LM.R_ANKLE].y >= lms[LM.L_ANKLE].y ? 'R' : 'L';
