@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=7';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=7';
-import { classify, LOGIC_LINE } from './engine.js?v=7';
+import * as P from './pose.js?v=8';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=8';
+import { classify, LOGIC_LINE } from './engine.js?v=8';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -80,7 +80,7 @@ const STAGES = [
     sub: 'המצלמה עוקבת אחרי גיד אכילס, העקב וציר הברך בזמן הליכה.',
     steps: ['הנח את הטלפון יציב בגובה הקרסול (נשען על משהו), מסך אליך',
             'התרחק יחף, במכנסיים קצרים או מופשלים, עד שרואים אותך מהרצפה עד המותן',
-            'ההדרכה הקולית תלווה: הסתובב, 5 צעדים (נספרים בקול), עצור, פנים למצלמה, 5 צעדים'] },
+            'ההדרכה הקולית מגיבה למה שהמצלמה רואה: הסתובב, לך, עצור, חזור אל המצלמה'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
     steps: ['הטלפון נשאר בגובה קרסול', 'עמוד בפרופיל כשצד שמאל למצלמה — מרימים את שמאל ורואים את הקשת הפנימית של ימין', 'עקוב אחרי ההנחיות הקוליות'] },
@@ -129,7 +129,7 @@ async function runStage(st) {
   overlay.width = video.videoWidth; overlay.height = video.videoHeight;
   const machine = st.key === 'archR' ? new ArchTest({ side: 'R', ui })
     : st.key === 'archL' ? new ArchTest({ side: 'L', ui })
-    : new WalkScan({ steps: 5, ui });
+    : new WalkScan({ ui });
   ui.tag(st.title);
   $('angleHud').hidden = !(machine instanceof WalkScan);
   $('scanHint').textContent = 'עקוב אחרי ההנחיות על המסך ובקול';
