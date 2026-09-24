@@ -117,8 +117,8 @@ const ui = () => ({ instr() {}, tag() {} });
   const cut = person(); [P.LM.R_HEEL, P.LM.L_HEEL, P.LM.R_TOE, P.LM.L_TOE]
     .forEach(i => { cut[i].y = 0.995; });
   check('feet at frame edge → feet_cut', P.diagnose(cut).reason === 'feet_cut');
-  check('close-up arch framing ok', P.archDiagnose(person({ dist: 1.2 })).ok);
-  check('arch too far → too_far', P.archDiagnose(person({ dist: 8 })).reason === 'too_far');
+  check('arch framing ok at 2m', P.archDiagnose(person({ dist: 2 })).ok);
+  check('arch too far → too_far', P.archDiagnose(person({ dist: 12 })).reason === 'too_far');
 }
 
 // ================= T2: walking scan end-to-end =================
