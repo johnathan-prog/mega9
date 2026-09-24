@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=19';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=19';
-import { classify, LOGIC_LINE } from './engine.js?v=19';
+import * as P from './pose.js?v=20';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=20';
+import { classify, LOGIC_LINE } from './engine.js?v=20';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -140,8 +140,12 @@ async function runStage(st) {
       const lms = P.detect(video, ts ?? performance.now());
       P.drawSkeleton(overlay, lms);
       machine.frame(lms);
-      if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0)
-        $('dbgLine').textContent = P.visReport(lms);
+      if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0) {
+        const now = performance.now();
+        const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
+        machine._dbgT = now;
+        $('dbgLine').textContent = `${fps}fps · ${P.visReport(lms)}`;
+      }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
         $('hAch').textContent = ((Math.abs(P.achillesDeviation(lms, 'R')) + Math.abs(P.achillesDeviation(lms, 'L'))) / 2).toFixed(1) + '°';

@@ -140,8 +140,12 @@ async function runStage(st) {
       const lms = P.detect(video, ts ?? performance.now());
       P.drawSkeleton(overlay, lms);
       machine.frame(lms);
-      if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0)
-        $('dbgLine').textContent = P.visReport(lms);
+      if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0) {
+        const now = performance.now();
+        const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
+        machine._dbgT = now;
+        $('dbgLine').textContent = `${fps}fps · ${P.visReport(lms)}`;
+      }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
         $('hAch').textContent = ((Math.abs(P.achillesDeviation(lms, 'R')) + Math.abs(P.achillesDeviation(lms, 'L'))) / 2).toFixed(1) + '°';
