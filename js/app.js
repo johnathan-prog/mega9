@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=4';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=4';
-import { classify, LOGIC_LINE } from './engine.js?v=4';
+import * as P from './pose.js?v=5';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=5';
+import { classify, LOGIC_LINE } from './engine.js?v=5';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };

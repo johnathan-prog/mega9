@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './pose.js?v=4';
+import * as P from './pose.js?v=5';
 
 let hebVoice = null;
 function pickVoice() {
@@ -213,14 +213,30 @@ export class ArchTest {
     if (this.state === 'HOLD') return 0.4 + 0.6 * Math.min(1, (Date.now() - this.stateSince) / this.holdMs);
     return 1;
   }
-  // which ankle is lifted? compare heights (image y grows downward)
-  liftedSide(lms) {
-    const yT = lms[this.side === 'R' ? P.LM.R_ANKLE : P.LM.L_ANKLE].y;
-    const yO = lms[this.side === 'R' ? P.LM.L_ANKLE : P.LM.R_ANKLE].y;
-    const diff = yO - yT; // positive → tested ankle is HIGHER → wrong leg lifted
-    if (diff > 0.04) return this.side;      // wrong: the leg we must stand on is up
-    if (diff < -0.04) return this.other;    // correct: the other leg is up
-    return null;                            // both down
+  // Which foot is lifted — near (camera-side) or far? In profile stance
+  // the pose model often swaps its left/right labels (one leg occludes
+  // the other), so we do NOT trust R/L. The tested leg is the one whose
+  // side faces the camera, i.e. the ankle with the smaller depth (z).
+  // Correct form: near foot planted, far foot lifted.
+  // the landmark label ('R'/'L') of the camera-near ankle — the measured leg
+  nearLabel(lms) {
+    return (lms[P.LM.R_ANKLE].z ?? 0) <= (lms[P.LM.L_ANKLE].z ?? 0) ? 'R' : 'L';
+  }
+  liftedFoot(lms) {
+    const a1 = lms[P.LM.R_ANKLE], a2 = lms[P.LM.L_ANKLE];
+    const near = (a1.z ?? 0) <= (a2.z ?? 0) ? a1 : a2;
+    const far = near === a1 ? a2 : a1;
+    const diff = far.y - near.y; // y grows downward
+    if (diff > 0.04) return 'near';  // near ankle is higher → wrong leg lifted
+    if (diff < -0.04) return 'far';  // far ankle is higher → correct
+    return null;                     // both down
+  }
+  // debounced classification: require consecutive frames before acting
+  stableLifted(lms) {
+    const v = this.liftedFoot(lms);
+    if (v === this._lastLift) this._liftFrames = (this._liftFrames || 0) + 1;
+    else { this._lastLift = v; this._liftFrames = 1; }
+    return this._liftFrames >= 12 ? v : undefined; // ~0.5s at 25fps
   }
   correctWrongLeg() {
     if (Date.now() - this.lastCorrectionAt < 4000) return;
@@ -246,7 +262,7 @@ export class ArchTest {
         break;
       case 'PROFILE': {
         if (!lms) break;
-        const arch = P.archHeight(lms, this.side);
+        const arch = P.archHeight(lms, this.nearLabel(lms));
         if (arch != null) this.baseline.push(arch);
         if (this.baseline.length > 30 && this.sinceMs() > 2500) {
           this.setState('LIFT');
@@ -257,9 +273,9 @@ export class ArchTest {
       }
       case 'LIFT': {
         if (!lms) break;
-        const lifted = this.liftedSide(lms);
-        if (lifted === this.side) { this.correctWrongLeg(); break; }
-        if (lifted === this.other) {
+        const lifted = this.stableLifted(lms);
+        if (lifted === 'near') { this.correctWrongLeg(); break; }
+        if (lifted === 'far') {
           this.setState('HOLD');
           say('מצוין. החזק חמש שניות', { force: true });
         } else if (this.sinceMs() > 6000) {
@@ -270,10 +286,10 @@ export class ArchTest {
       }
       case 'HOLD': {
         if (!lms) break;
-        const lifted = this.liftedSide(lms);
-        if (lifted === this.side) { this.correctWrongLeg(); this.setState('LIFT'); break; }
-        if (lifted !== this.other) { this.setState('LIFT'); break; } // foot came down — restart hold
-        const arch = P.archHeight(lms, this.side);
+        const lifted = this.stableLifted(lms);
+        if (lifted === 'near') { this.correctWrongLeg(); this.setState('LIFT'); break; }
+        if (lifted === null) { this.setState('LIFT'); break; } // foot came down — restart hold
+        const arch = P.archHeight(lms, this.nearLabel(lms));
         if (arch != null) this.loaded.push(arch);
         const left = Math.ceil((this.holdMs - this.sinceMs()) / 1000);
         this.ui.instr(left > 0 ? String(left) : '✓');
