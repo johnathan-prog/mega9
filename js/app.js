@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=31';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=31';
-import { classify, LOGIC_LINE } from './engine.js?v=31';
+import * as P from './pose.js?v=32';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=32';
+import { classify, LOGIC_LINE } from './engine.js?v=32';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -96,9 +96,14 @@ function captureSnap(video, lms, recT) {
   const c = document.createElement('canvas');
   c.width = 270; c.height = 360;
   const x = c.getContext('2d');
-  // mirror to match what the user sees on screen
+  // mirror to match what the user sees on screen, cover-cropped so the
+  // photo keeps its true proportions instead of stretching
+  const va = video.videoWidth / video.videoHeight, ca = c.width / c.height;
+  let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+  if (va > ca) { sw = sh * ca; sx = (video.videoWidth - sw) / 2; }
+  else { sh = sw / ca; sy = (video.videoHeight - sh) / 2; }
   x.translate(c.width, 0); x.scale(-1, 1);
-  x.drawImage(video, 0, 0, c.width, c.height);
+  x.drawImage(video, sx, sy, sw, sh, 0, 0, c.width, c.height);
   x.setTransform(1, 0, 0, 1, 0, 0);
   x.strokeStyle = '#4FE3C1'; x.lineWidth = 3; x.lineCap = 'round';
   const pt = i => [(1 - lms[i].x) * c.width, lms[i].y * c.height];
@@ -171,7 +176,7 @@ async function runStage(st) {
         const now = performance.now();
         const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
         machine._dbgT = now;
-        $('dbgLine').textContent = `v31 · ${fps}fps · ${P.visReport(lms)}`;
+        $('dbgLine').textContent = `v32 · ${fps}fps · ${P.visReport(lms)}`;
       }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
@@ -214,10 +219,12 @@ function renderResults(profile) {
     el.className = 'res-foot';
     el.innerHTML = `
       <div class="res-head"><strong>${label}</strong><span class="pill" style="background:${c.color}">${c.name}</span></div>
-      <div class="metric"><span>סטיית גיד אכילס מהאנך</span><b class="${cls(f.ach > 3)}">${f.ach}°</b></div>
-      <div class="metric"><span>זווית ציר ברך (וולגוס+/וורוס−)</span><b class="${cls(Math.abs(f.knee) > 3)}">${f.knee}°</b></div>
-      <div class="metric"><span>אורך × רוחב</span><b>${num(li)} × ${num(wi)} ס״מ</b></div>
-      <div class="small">${c.why}</div>`;
+      <p class="plain">${c.plain}</p>
+      ${gauge('קו העקב בדריכה', f.ach, 0, 10, [[0, 3, 'var(--ok)'], [3, 6, 'var(--low)'], [6, 10, 'var(--flat)']],
+        'ישר', 'קורס פנימה')}
+      <div class="metric"><span>מידות</span><b>${num(li)} × ${num(wi)} ס״מ</b></div>
+      <details class="small"><summary>הפירוט המקצועי</summary>
+        סטיית גיד אכילס: ${f.ach}° · ציר ברך: ${f.knee}°<br>${c.why}</details>`;
     box.appendChild(el);
   });
   $('logicLine').textContent = LOGIC_LINE;
@@ -254,13 +261,23 @@ function renderEvidence() {
       if (s && !used.has(s.url)) { used.add(s.url); picks.push({ s, label }); if (used.size >= 2) break; }
     }
   };
-  add(walk.achTimes, 'מבט אחורי · קו גיד אכילס');
-  add(walk.kneeTimes, 'מבט קדמי · ציר הברך');
+  add(walk.achTimes, 'הדריכה שלך מאחור — הקו הוא קו העקב');
+  add(walk.kneeTimes, 'הדריכה שלך מקדימה — קו הברך והשוק');
   if (!picks.length) { box.hidden = true; return; }
   box.hidden = false;
   box.innerHTML = '<strong>צילומים מרגעי המדידה</strong><div class="evgrid">' +
     picks.map(p => `<figure class="ev"><img src="${p.s.url}" alt=""><figcaption>${p.label}</figcaption></figure>`).join('') +
-    '</div><p class="small">הפריימים שנדגמו ברגעי התמיכה על רגל אחת — הבסיס למספרים שלמעלה.</p>';
+    '</div><p class="small">אלה הרגעים שבהם כל המשקל על רגל אחת — הרגעים שמהם נמדדו התוצאות.</p>';
+}
+
+// horizontal gauge: colored zones + a marker where this foot measured
+function gauge(label, val, min, max, zones, loLabel, hiLabel) {
+  const pct = v => ((Math.min(max, Math.max(min, v)) - min) / (max - min) * 100).toFixed(1);
+  const zoneDivs = zones.map(([a, b, col]) =>
+    `<i style="right:${pct(a)}%;width:${(pct(b) - pct(a)).toFixed(1)}%;background:${col}"></i>`).join('');
+  return `<div class="gaugebox"><div class="glabel"><span>${label}</span><b>${val}°</b></div>
+    <div class="gtrack">${zoneDivs}<u style="right:calc(${pct(val)}% - 7px)"></u></div>
+    <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
 }
 
 /* ================= payment ================= */

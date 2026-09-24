@@ -67,6 +67,15 @@ input.t{border:1.5px solid var(--line);border-radius:10px;padding:11px;font:600 
 .explain{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:14px}
 .price{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0}
 .price b{font-size:26px}
+.plain{margin:2px 0 8px;font-size:15.5px}
+.gaugebox{margin:6px 0 10px}
+.glabel{display:flex;justify-content:space-between;font-size:13px;color:var(--sub)}
+.glabel b{color:var(--ink);font-variant-numeric:tabular-nums}
+.gtrack{position:relative;height:10px;border-radius:5px;margin:6px 0 2px;background:var(--line)}
+.gtrack i{position:absolute;top:0;height:100%;opacity:.75}
+.gtrack u{position:absolute;top:-4px;width:14px;height:18px;border-radius:4px;background:var(--ink);border:2px solid var(--card)}
+.gends{display:flex;justify-content:space-between;font-size:11.5px;color:var(--sub)}
+details.small summary{cursor:pointer;color:var(--accent);font-weight:600}
 .evgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .ev{margin:0}
 .ev img{width:100%;border-radius:10px;display:block}
