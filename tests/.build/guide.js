@@ -155,7 +155,9 @@ export class WalkScan {
     const diag = P.diagnose(lms);
     switch (this.state) {
       case 'FIND': {
-        const present = this.presence.feed(!!lms && diag.reason !== 'no_person');
+        // sticky presence of the FULL lower body (floor-to-waist), not of
+        // any person — a face filling the frame must never count as synced
+        const present = this.presence.feed(!!lms && diag.ok);
         if (present) {
           if (!this.visibleSince) {
             this.visibleSince = Date.now();
@@ -167,7 +169,9 @@ export class WalkScan {
             this.setState('SYNC', 'מסונכרן ✓', 'מסונכרן');
         } else {
           this.visibleSince = 0;
-          this.coach.feed({ ok: false, reason: 'no_person' });
+          // coach with the REAL reason: a close-up face gets "step back",
+          // an empty frame gets "I can't see you"
+          this.coach.feed(lms ? diag : { ok: false, reason: 'no_person' });
         }
         break;
       }

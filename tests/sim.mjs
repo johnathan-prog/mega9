@@ -163,6 +163,14 @@ const ui = () => ({ instr() {}, tag() {} });
   const loseYou = spoken.filter(s => s.includes('לא רואה')).length;
   check('no I-see-you/lost-you loop', seeYou <= 1 && loseYou === 0,
     `seeYou=${seeYou} loseYou=${loseYou}`);
+
+  // a face-only close-up (legs invisible) must NEVER sync — it must coach
+  const m3 = new G.WalkScan({ ui: ui() });
+  spoken.length = 0;
+  for (let i = 0; i < 200; i++) await tick(m3, person({ conf: 0.1 }));
+  check('face-only never syncs', m3.state === 'FIND', `state=${m3.state}`);
+  check('coaches to step back', spoken.some(s => s.includes('התרחק') || s.includes('הרגליים')),
+    JSON.stringify(spoken.slice(0, 2)));
 }
 
 // ================= T4: arch test measures the STANDING foot =================

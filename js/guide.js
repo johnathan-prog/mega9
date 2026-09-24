@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=22';
+import * as P from './posemath.js?v=23';
 
 let hebVoice = null;
 function pickVoice() {
@@ -155,7 +155,9 @@ export class WalkScan {
     const diag = P.diagnose(lms);
     switch (this.state) {
       case 'FIND': {
-        const present = this.presence.feed(!!lms && diag.reason !== 'no_person');
+        // sticky presence of the FULL lower body (floor-to-waist), not of
+        // any person — a face filling the frame must never count as synced
+        const present = this.presence.feed(!!lms && diag.ok);
         if (present) {
           if (!this.visibleSince) {
             this.visibleSince = Date.now();
@@ -167,7 +169,9 @@ export class WalkScan {
             this.setState('SYNC', 'מסונכרן ✓', 'מסונכרן');
         } else {
           this.visibleSince = 0;
-          this.coach.feed({ ok: false, reason: 'no_person' });
+          // coach with the REAL reason: a close-up face gets "step back",
+          // an empty frame gets "I can't see you"
+          this.coach.feed(lms ? diag : { ok: false, reason: 'no_person' });
         }
         break;
       }
