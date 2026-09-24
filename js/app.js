@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=3';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=3';
-import { classify, LOGIC_LINE } from './engine.js?v=3';
+import * as P from './pose.js?v=4';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=4';
+import { classify, LOGIC_LINE } from './engine.js?v=4';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -45,24 +45,30 @@ function renderQ() {
   $('qsub').textContent = q.s;
   const box = $('qchoices'); box.innerHTML = '';
   const sel = new Set();
+  // every question advances only via the continue button — no auto-advance
   const next = $('qnext');
-  next.hidden = !q.multi; next.disabled = true;
+  next.hidden = false; next.disabled = true;
   const advance = () => {
     answers[q.k] = [...sel];
     qi++;
     if (qi < QS.length) renderQ();
     else { prepStage(0); }
   };
+  const buttons = [];
   q.c.forEach((c, i) => {
     const b = document.createElement('button');
     b.className = 'choice'; b.textContent = c; b.id = `qc_${q.k}_${i}`;
     b.onclick = () => {
       if (q.multi) {
         sel.has(i) ? sel.delete(i) : sel.add(i);
-        b.classList.toggle('sel', sel.has(i));
-        next.disabled = sel.size === 0;
-      } else { sel.add(i); advance(); }
+      } else {
+        sel.clear(); sel.add(i);
+        buttons.forEach(x => x.classList.remove('sel'));
+      }
+      b.classList.toggle('sel', sel.has(i));
+      next.disabled = sel.size === 0;
     };
+    buttons.push(b);
     box.appendChild(b);
   });
   next.onclick = advance;
@@ -70,15 +76,11 @@ function renderQ() {
 
 /* ================= scan stages ================= */
 const STAGES = [
-  { key: 'knee', title: 'סריקת הליכה · גובה ברך',
-    sub: 'בזווית הזו נבדק ציר הרגל: קו הברך והשוק לאורך צעד.',
-    steps: ['הנח את הטלפון יציב בגובה הברך (על ספר או קופסה), מסך אליך',
-            'התרחק כ־3 מטרים, יחף, במכנסיים קצרים או מופשלים — ועמוד מול המצלמה לסנכרון',
-            'ההדרכה הקולית תלווה אותך: הסתובב, 5 צעדים, עצור, פנים למצלמה, 5 צעדים'] },
-  { key: 'ankle', title: 'סריקת הליכה · גובה קרסול',
-    sub: 'החלק החשוב: זווית העקב וגיד אכילס בזמן תנועה.',
-    steps: ['הורד את הטלפון לגובה הקרסול, נשען יציב',
-            'אותו תרגיל: סנכרון, גב למצלמה, 5 צעדים, עצור, פנים למצלמה, 5 צעדים'] },
+  { key: 'walk', title: 'סריקת הליכה · גובה קרסול',
+    sub: 'המצלמה עוקבת אחרי גיד אכילס, העקב וציר הברך בזמן הליכה.',
+    steps: ['הנח את הטלפון יציב בגובה הקרסול (נשען על משהו), מסך אליך',
+            'התרחק יחף, במכנסיים קצרים או מופשלים, עד שרואים אותך מהרצפה עד המותן',
+            'ההדרכה הקולית תלווה: הסתובב, 5 צעדים (נספרים בקול), עצור, פנים למצלמה, 5 צעדים'] },
   { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
     sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
     steps: ['הטלפון נשאר בגובה קרסול', 'עמוד בפרופיל, צד ימין למצלמה', 'עקוב אחרי ההנחיות הקוליות'] },
@@ -160,12 +162,10 @@ async function runStage(st) {
 /* ================= results ================= */
 function num(id) { return parseFloat($(id).value) || 0; }
 $('analyzeBtn').onclick = () => {
-  const walkKnee = scanResults.knee || { R: { ach: 0, knee: 0 }, L: { ach: 0, knee: 0 } };
-  const walkAnkle = scanResults.ankle || walkKnee;
+  const walk = scanResults.walk || { R: { ach: 0, knee: 0 }, L: { ach: 0, knee: 0 } };
   const profile = {
-    // ankle-height pass owns the Achilles read; knee-height pass owns the knee axis
-    R: { ach: walkAnkle.R.ach, knee: walkKnee.R.knee, collapse: scanResults.archR?.collapse ?? 0 },
-    L: { ach: walkAnkle.L.ach, knee: walkKnee.L.knee, collapse: scanResults.archL?.collapse ?? 0 },
+    R: { ach: walk.R.ach, knee: walk.R.knee, collapse: scanResults.archR?.collapse ?? 0 },
+    L: { ach: walk.L.ach, knee: walk.L.knee, collapse: scanResults.archL?.collapse ?? 0 },
   };
   renderResults(profile);
   go('results');

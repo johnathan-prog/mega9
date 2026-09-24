@@ -124,3 +124,14 @@ export function legsVisible(lms) {
   return [LM.L_KNEE, LM.R_KNEE, LM.L_ANKLE, LM.R_ANKLE, LM.L_HEEL, LM.R_HEEL]
     .every(i => (lms[i].visibility ?? 1) > 0.5);
 }
+
+// The scan-readiness gate: floor-to-waist in frame. Hips through heels
+// visible, and the feet actually inside the frame (not cut off below).
+export function lowerBodyVisible(lms) {
+  const parts = [LM.L_HIP, LM.R_HIP, LM.L_KNEE, LM.R_KNEE,
+    LM.L_ANKLE, LM.R_ANKLE, LM.L_HEEL, LM.R_HEEL];
+  if (!parts.every(i => (lms[i].visibility ?? 1) > 0.5)) return false;
+  const maxY = Math.max(lms[LM.L_HEEL].y, lms[LM.R_HEEL].y);
+  const minY = Math.min(lms[LM.L_HIP].y, lms[LM.R_HIP].y);
+  return maxY < 0.99 && minY > 0.01;
+}
