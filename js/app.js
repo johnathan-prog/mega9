@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=28';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=28';
-import { classify, LOGIC_LINE } from './engine.js?v=28';
+import * as P from './pose.js?v=29';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=29';
+import { classify, LOGIC_LINE } from './engine.js?v=29';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -152,7 +152,7 @@ async function runStage(st) {
         const now = performance.now();
         const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
         machine._dbgT = now;
-        $('dbgLine').textContent = `v28 · ${fps}fps · ${P.visReport(lms)}`;
+        $('dbgLine').textContent = `v29 · ${fps}fps · ${P.visReport(lms)}`;
       }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {

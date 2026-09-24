@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=28';
+import * as P from './posemath.js?v=29';
 
 let hebVoice = null;
 function pickVoice() {
@@ -100,9 +100,9 @@ class SightCoach {
     // the SCREEN shows the blocker immediately; only the voice is throttled
     this.ui.instr((SIGHT_LINES[diag.reason] || SIGHT_LINES.no_person)[0]);
     if (diag.reason !== this.reason) { this.reason = diag.reason; this.reasonSince = now; return; }
-    if (now - this.reasonSince > 2500 && now - this.lastSpokeAt > 6000) {
+    if (now - this.reasonSince > 1000 && now - this.lastSpokeAt > 5000) {
       const lines = SIGHT_LINES[diag.reason] || SIGHT_LINES.no_person;
-      const line = lines[Math.floor(now / 6000) % lines.length];
+      const line = lines[Math.floor(now / 5000) % lines.length];
       say(line, { force: true });
       this.ui.instr(line);
       this.lastSpokeAt = now;
