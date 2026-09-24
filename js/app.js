@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=20';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=20';
-import { classify, LOGIC_LINE } from './engine.js?v=20';
+import * as P from './pose.js?v=21';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=21';
+import { classify, LOGIC_LINE } from './engine.js?v=21';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
@@ -90,6 +90,13 @@ const STAGES = [
 ];
 let stageIdx = 0;
 const scanResults = {};
+// raw landmark log — the ground truth for offline calibration
+const rawLog = [];
+function logFrame(stage, lms) {
+  if (rawLog.length > 30000) return;
+  rawLog.push({ s: stage, t: Math.round(performance.now()),
+    l: lms ? lms.map(p => [+p.x.toFixed(3), +p.y.toFixed(3), +(p.visibility ?? 1).toFixed(2)]) : null });
+}
 
 function prepStage(i) {
   stageIdx = i;
@@ -138,6 +145,7 @@ async function runStage(st) {
     const loop = (ts) => {
       if (abortScan) return resolve();
       const lms = P.detect(video, ts ?? performance.now());
+      logFrame(st.key, lms);
       P.drawSkeleton(overlay, lms);
       machine.frame(lms);
       if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0) {
@@ -195,6 +203,14 @@ function renderResults(profile) {
     box.appendChild(el);
   });
   $('logicLine').textContent = LOGIC_LINE;
+  $('dumpBtn').onclick = () => {
+    const blob = new Blob([JSON.stringify({ ts: new Date().toISOString(), answers, scanResults, rawLog })],
+      { type: 'application/json' });
+    const a2 = document.createElement('a');
+    a2.href = URL.createObjectURL(blob);
+    a2.download = 'solescan-debug.json';
+    a2.click();
+  };
 
   const specs = new Set(); [out.R, out.L].forEach(c => c.spec.forEach(s => specs.add(s)));
   const asym = out.R.cls !== out.L.cls;
