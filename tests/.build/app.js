@@ -81,12 +81,6 @@ const STAGES = [
     steps: ['הנח את הטלפון יציב בגובה הקרסול (נשען על משהו), מסך אליך',
             'התרחק כ־3 מטרים, יחף, במכנסיים קצרים — כל הגוף צריך להיכנס לפריים',
             'פשוט תלך הלוך ושוב טבעי כ־20 שניות — ההקלטה מנותחת אוטומטית, מחזורי הליכה נקיים בלבד'] },
-  { key: 'archR', title: 'מבחן קריסת קשת · רגל ימין',
-    sub: 'עמידה בפרופיל על רגל אחת — מדידת הקשת תחת עומס מלא.',
-    steps: ['הטלפון נשאר בגובה קרסול. עמוד כ־2 מטרים ממנו — כל הגוף בפריים', 'עמוד בפרופיל כשצד שמאל למצלמה — מרימים את שמאל ורואים את הקשת הפנימית של ימין', 'עקוב אחרי ההנחיות הקוליות'] },
-  { key: 'archL', title: 'מבחן קריסת קשת · רגל שמאל',
-    sub: 'אותו מבחן לרגל שמאל.',
-    steps: ['אותו מרחק — כ־2 מטרים, כל הגוף בפריים', 'הסתובב — צד ימין למצלמה, מרימים את ימין ורואים את הקשת הפנימית של שמאל', 'עקוב אחרי ההנחיות'] },
 ];
 let stageIdx = 0;
 const scanResults = {};
@@ -152,7 +146,7 @@ async function runStage(st) {
         const now = performance.now();
         const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
         machine._dbgT = now;
-        $('dbgLine').textContent = `v28 · ${fps}fps · ${P.visReport(lms)}`;
+        $('dbgLine').textContent = `v30 · ${fps}fps · ${P.visReport(lms)}`;
       }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
@@ -178,8 +172,8 @@ function num(id) { return parseFloat($(id).value) || 0; }
 $('analyzeBtn').onclick = () => {
   const walk = scanResults.walk || { R: { ach: 0, knee: 0 }, L: { ach: 0, knee: 0 } };
   const profile = {
-    R: { ach: walk.R.ach, knee: walk.R.knee, collapse: scanResults.archR?.collapse ?? 0 },
-    L: { ach: walk.L.ach, knee: walk.L.knee, collapse: scanResults.archL?.collapse ?? 0 },
+    R: { ach: walk.R.ach, knee: walk.R.knee, collapse: null },
+    L: { ach: walk.L.ach, knee: walk.L.knee, collapse: null },
   };
   renderResults(profile);
   go('results');
@@ -197,7 +191,6 @@ function renderResults(profile) {
       <div class="res-head"><strong>${label}</strong><span class="pill" style="background:${c.color}">${c.name}</span></div>
       <div class="metric"><span>סטיית גיד אכילס מהאנך</span><b class="${cls(f.ach > 3)}">${f.ach}°</b></div>
       <div class="metric"><span>זווית ציר ברך (וולגוס+/וורוס−)</span><b class="${cls(Math.abs(f.knee) > 3)}">${f.knee}°</b></div>
-      <div class="metric"><span>קריסת קשת בהעמסה</span><b class="${cls(f.collapse > 37)}">${f.collapse}%</b></div>
       <div class="metric"><span>אורך × רוחב</span><b>${num(li)} × ${num(wi)} ס״מ</b></div>
       <div class="small">${c.why}</div>`;
     box.appendChild(el);

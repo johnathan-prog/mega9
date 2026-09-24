@@ -13,24 +13,27 @@ export const THRESHOLDS = {
 //    varus (O-legs, negative) supports HIGH ARCH.
 // 2. Broken inward → tendon pulls the knee medially → collapse is
 //    confirmed by the single-leg loading test: FLAT vs LOW arch.
+// collapse may be null when the single-leg loading test was not run —
+// the tree then rests on the Achilles line and knee axis alone.
 export function classify(f, t = THRESHOLDS) {
+  const hasCollapse = f.collapse != null;
   if (f.ach <= t.achillesStraightMax) {
     return {
       cls: 'high', name: 'קשת גבוהה', color: 'var(--high)',
-      why: `גיד אכילס ישר (${f.ach}°) — אין קריסה פנימה. ציר הברך ${f.knee < 0 ? 'בוורוס (דפוס רגלי O)' : 'ניטרלי'} (${f.knee}°) וקריסת ההעמסה מזערית (${f.collapse}%) — דפוס קשת גבוהה.`,
+      why: `גיד אכילס ישר (${f.ach}°) — אין קריסה פנימה. ציר הברך ${f.knee < 0 ? 'בוורוס (דפוס רגלי O)' : 'ניטרלי'} (${f.knee}°)${hasCollapse ? ` וקריסת ההעמסה מזערית (${f.collapse}%)` : ''} — דפוס קשת גבוהה.`,
       spec: ['ספיגת זעזועים מוגברת בעקב ובכרית', 'מילוי ותמיכה מלאה לאורך הקשת', 'הקלה על עומס צידי (סופינציה)'],
     };
   }
-  if (f.ach > t.achillesFlatMin || f.collapse > t.collapseFlatMin) {
+  if (f.ach > t.achillesFlatMin || (hasCollapse && f.collapse > t.collapseFlatMin)) {
     return {
       cls: 'flat', name: 'פלטפוס', color: 'var(--flat)',
-      why: `גיד אכילס נשבר פנימה (${f.ach}°) ומושך את הברך מדיאלית (${f.knee}°). במבחן ההעמסה הקשת קרסה ${f.collapse}% — דפוס פלטפוס.`,
+      why: `גיד אכילס נשבר פנימה (${f.ach}°) ומושך את הברך מדיאלית (${f.knee}°)${hasCollapse ? `. במבחן ההעמסה הקשת קרסה ${f.collapse}%` : ''} — דפוס פלטפוס.`,
       spec: ['תמיכת קשת מלאה וקשיחה', 'ייצוב עקב עמוק (Heel Cup)', 'הגבהה מדיאלית לתיקון ציר הברך'],
     };
   }
   return {
     cls: 'low', name: 'קשת נמוכה', color: 'var(--low)',
-    why: `סטייה מתונה בגיד אכילס (${f.ach}°) עם משיכה קלה של הברך פנימה (${f.knee}°) וקריסת העמסה חלקית (${f.collapse}%) — קשת נמוכה.`,
+    why: `סטייה מתונה בגיד אכילס (${f.ach}°) עם משיכה קלה של הברך פנימה (${f.knee}°)${hasCollapse ? ` וקריסת העמסה חלקית (${f.collapse}%)` : ''} — קשת נמוכה.`,
     spec: ['תמיכת קשת בינונית', 'ייצוב עקב', 'חלוקת עומס מחודשת קדימה'],
   };
 }

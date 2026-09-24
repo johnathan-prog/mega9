@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=29';
+import * as P from './posemath.js?v=30';
 
 let hebVoice = null;
 function pickVoice() {
@@ -191,7 +191,7 @@ export class WalkScan {
         if (this.sinceMs() > 800 && speechIdle()) {
           this.t0 = Date.now();
           this.setState('RECORD', 'לך הלוך ושוב, טבעי, עד שאגיד עצור',
-            'עכשיו פשוט לך הלוך ושוב לאורך החדר בקצב טבעי. כשאתה מתקרב לטלפון — הסתובב וחזור. אני מקליט ואגיד מתי לעצור');
+            'עכשיו הסתובב ולך הלוך ושוב עד לנקודה. אל תתקרב קרוב מדי למצלמה — אחרת לא נוכל לבצע אבחנה. אני מקליט ואגיד מתי לעצור');
         }
         break;
       case 'RECORD': {
