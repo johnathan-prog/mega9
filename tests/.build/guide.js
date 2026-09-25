@@ -167,9 +167,10 @@ export class WalkScan {
     }
     switch (this.state) {
       case 'FIND': {
-        // sticky presence of the FULL lower body (floor-to-waist), not of
-        // any person — a face filling the frame must never count as synced
-        const present = this.presence.feed(!!lms && diag.ok);
+        // sticky presence of the FULL body at a measurable distance —
+        // a face close-up or a too-near stance must never count as synced
+        const sc0 = lms ? P.legScale(lms) : 0;
+        const present = this.presence.feed(!!lms && diag.ok && sc0 > 0 && sc0 < 0.78);
         if (present) {
           if (!this.visibleSince) {
             this.visibleSince = Date.now();
@@ -217,10 +218,11 @@ export class WalkScan {
               : 'אני לא רואה תנועה — לך הלוך ושוב בבקשה';
             say(line, { force: true });
           }
-        } else if (scl && scl > 0.8 && now - (this.lastTurnCueAt || 0) > 6000) {
-          // sight-driven turn cue BEFORE tracking is lost
+        } else if (scl && scl > 0.78 && now - (this.lastTurnCueAt || 0) > 4000) {
+          // time-critical: fires IMMEDIATELY, bypassing the speech queue,
+          // with margin before tracking would be lost
           this.lastTurnCueAt = now;
-          say('מספיק קרוב — הסתובב כאן וחזור', { force: true });
+          say('הסתובב כאן וחזור', { urgent: true });
         } else if (lms && diag.ok) {
           this.lastRecT = now - this.t0 - this.pausedMs;
           this.rec.push({

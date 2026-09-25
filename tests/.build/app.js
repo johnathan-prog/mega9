@@ -91,7 +91,7 @@ const snaps = [];
 let lastSnapAt = 0;
 function captureSnap(video, lms, recT) {
   const now = performance.now();
-  if (now - lastSnapAt < 1200 || snaps.length > 40 || !video.videoWidth) return;
+  if (now - lastSnapAt < 500 || snaps.length > 80 || !video.videoWidth) return;
   lastSnapAt = now;
   const c = document.createElement('canvas');
   c.width = 270; c.height = 360;
@@ -114,9 +114,9 @@ function captureSnap(video, lms, recT) {
   }
   snaps.push({ t: recT, url: c.toDataURL('image/jpeg', 0.6) });
 }
-function logFrame(stage, lms) {
+function logFrame(stage, lms, recT) {
   if (rawLog.length > 30000) return;
-  rawLog.push({ s: stage, t: Math.round(performance.now()),
+  rawLog.push({ s: stage, t: Math.round(performance.now()), rt: recT ?? null,
     l: lms ? lms.map(p => [+p.x.toFixed(3), +p.y.toFixed(3), +(p.visibility ?? 1).toFixed(2)]) : null });
 }
 
@@ -167,17 +167,14 @@ async function runStage(st) {
     const loop = (ts) => {
       if (abortScan) return resolve();
       const lms = P.detect(video, ts ?? performance.now());
-      logFrame(st.key, lms);
+      logFrame(st.key, lms, machine.lastRecT);
       if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
         captureSnap(video, lms, machine.lastRecT);
       P.drawSkeleton(overlay, lms);
+      if (lms) drawLiveAngles(overlay, lms);
+      if (machine.state === 'FIND' || machine.state === 'SYNC') drawSilhouette(overlay);
+      updateDistLight(lms, machine.state);
       machine.frame(lms);
-      if ((machine._dbgN = (machine._dbgN || 0) + 1) % 10 === 0) {
-        const now = performance.now();
-        const fps = machine._dbgT ? Math.round(10000 / (now - machine._dbgT)) : 0;
-        machine._dbgT = now;
-        $('dbgLine').textContent = `v31 · ${fps}fps · ${P.visReport(lms)}`;
-      }
       $('scanGauge').style.width = (machine.progress() * 100) + '%';
       if (lms && machine instanceof WalkScan) {
         $('hAch').textContent = ((Math.abs(P.achillesDeviation(lms, 'R')) + Math.abs(P.achillesDeviation(lms, 'L'))) / 2).toFixed(1) + '°';
@@ -245,29 +242,112 @@ function renderResults(profile) {
      <ul style="margin:0;padding-right:18px">${[...specs].map(s => `<li>${s}</li>`).join('')}</ul>`;
 }
 
+// the live "technology mirror": heel lines + degree readouts on the body
+function drawLiveAngles(canvas, lms) {
+  const x = canvas.getContext('2d');
+  const pt = i => [lms[i].x * canvas.width, lms[i].y * canvas.height];
+  x.lineCap = 'round';
+  for (const side of ['R', 'L']) {
+    const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
+    const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
+    if ((lms[HEEL].visibility ?? 1) < 0.3) continue;
+    const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
+    x.strokeStyle = '#FFD166'; x.lineWidth = 4;
+    x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
+    x.setLineDash([6, 6]); x.strokeStyle = 'rgba(255,255,255,.6)'; x.lineWidth = 2;
+    x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx, hy - Math.hypot(kx - hx, ky - hy)); x.stroke();
+    x.setLineDash([]);
+    const a = Math.abs(P.achillesDeviation(lms, side)).toFixed(0);
+    x.font = '700 22px Assistant, sans-serif';
+    x.fillStyle = '#FFD166';
+    x.save(); x.translate(hx, hy + 26); x.scale(-1, 1); x.fillText(a + '°', -14, 0); x.restore();
+  }
+}
+
+// positioning silhouette: fit yourself inside the dashed figure
+function drawSilhouette(canvas) {
+  const x = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height, cx = w / 2;
+  x.setLineDash([8, 8]); x.strokeStyle = 'rgba(79,227,193,.8)'; x.lineWidth = 3;
+  x.beginPath(); x.arc(cx, h * 0.16, h * 0.05, 0, 7); x.stroke();
+  x.beginPath();
+  x.moveTo(cx - w * 0.13, h * 0.26); x.lineTo(cx + w * 0.13, h * 0.26);
+  x.lineTo(cx + w * 0.10, h * 0.55); x.lineTo(cx + w * 0.08, h * 0.93);
+  x.moveTo(cx - w * 0.13, h * 0.26); x.lineTo(cx - w * 0.10, h * 0.55); x.lineTo(cx - w * 0.08, h * 0.93);
+  x.stroke(); x.setLineDash([]);
+}
+
+// live distance traffic light — the customer never estimates meters
+function updateDistLight(lms, state) {
+  const el = $('distLight');
+  if (state === 'DONE') { el.hidden = true; return; }
+  el.hidden = false;
+  const sc = lms ? P.legScale(lms) : 0;
+  if (!lms) { el.className = 'dist'; el.textContent = 'מחפש אותך…'; }
+  else if (sc > 0.78) { el.className = 'dist warn'; el.textContent = 'קרוב מדי — התרחק'; }
+  else if (!P.diagnose(lms).ok) { el.className = 'dist'; el.textContent = 'כל הגוף בפריים…'; }
+  else { el.className = 'dist good'; el.textContent = 'מרחק מצוין'; }
+}
+
 function nearestSnap(t) {
   let best = null, d = Infinity;
   for (const s of snaps) { const dd = Math.abs(s.t - t); if (dd < d) { d = dd; best = s; } }
   return d < 1500 ? best : null;
 }
+// slow-motion replay of the customer's own measurement instants: their
+// photo behind, the skeleton and heel line with a degree counter on top.
+let replayTimer = null;
 function renderEvidence() {
-  const box = $('evidence'); box.innerHTML = '';
+  const card = $('replayCard'), cv = $('replay');
   const walk = scanResults.walk || {};
-  const picks = [];
-  const add = (times, label) => {
-    const used = new Set();
-    for (const t of times || []) {
-      const s = nearestSnap(t);
-      if (s && !used.has(s.url)) { used.add(s.url); picks.push({ s, label }); if (used.size >= 2) break; }
+  const moments = [];
+  const collect = (times, label) => {
+    for (const t of (times || []).slice(0, 3)) {
+      const frames = rawLog.filter(f => f.l && f.rt != null && Math.abs(f.rt - t) < 700);
+      if (frames.length > 4) moments.push({ frames, label, snap: nearestSnap(t) });
     }
   };
-  add(walk.achTimes, 'הדריכה שלך מאחור — הקו הוא קו העקב');
-  add(walk.kneeTimes, 'הדריכה שלך מקדימה — קו הברך והשוק');
-  if (!picks.length) { box.hidden = true; return; }
-  box.hidden = false;
-  box.innerHTML = '<strong>צילומים מרגעי המדידה</strong><div class="evgrid">' +
-    picks.map(p => `<figure class="ev"><img src="${p.s.url}" alt=""><figcaption>${p.label}</figcaption></figure>`).join('') +
-    '</div><p class="small">אלה הרגעים שבהם כל המשקל על רגל אחת — הרגעים שמהם נמדדו התוצאות.</p>';
+  collect(walk.achTimes, 'מבט אחורי — קו העקב שלך מול קו ישר');
+  collect(walk.kneeTimes, 'מבט קדמי — ציר הברך והשוק שלך');
+  if (!moments.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const x = cv.getContext('2d');
+  const imgs = new Map();
+  for (const m of moments) if (m.snap && !imgs.has(m.snap.url)) {
+    const im = new Image(); im.src = m.snap.url; imgs.set(m.snap.url, im);
+  }
+  let mi = 0, fi = 0;
+  clearInterval(replayTimer);
+  replayTimer = setInterval(() => {
+    const m = moments[mi];
+    const f = m.frames[fi];
+    const lms = f.l.map(a => ({ x: a[0], y: a[1], visibility: a[2] }));
+    x.fillStyle = '#0B1416'; x.fillRect(0, 0, cv.width, cv.height);
+    const im = m.snap && imgs.get(m.snap.url);
+    if (im && im.complete) { x.globalAlpha = 0.55; x.drawImage(im, 0, 0, cv.width, cv.height); x.globalAlpha = 1; }
+    const pt = i => [(1 - lms[i].x) * cv.width, lms[i].y * cv.height];
+    x.strokeStyle = '#4FE3C1'; x.lineWidth = 3; x.lineCap = 'round';
+    for (const [a, b] of [[P.LM.R_HIP, P.LM.R_KNEE], [P.LM.R_KNEE, P.LM.R_ANKLE],
+                          [P.LM.L_HIP, P.LM.L_KNEE], [P.LM.L_KNEE, P.LM.L_ANKLE]]) {
+      const [ax, ay] = pt(a), [bx, by] = pt(b);
+      x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
+    }
+    for (const side of ['R', 'L']) {
+      const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
+      const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
+      const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
+      x.setLineDash([6, 6]); x.strokeStyle = 'rgba(255,255,255,.65)'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx, hy - Math.hypot(kx - hx, ky - hy)); x.stroke();
+      x.setLineDash([]);
+      x.strokeStyle = '#FFD166'; x.lineWidth = 4;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
+      x.font = '700 20px Assistant, sans-serif'; x.fillStyle = '#FFD166';
+      x.fillText(Math.abs(P.achillesDeviation(lms, side)).toFixed(0) + '°', hx + 8, hy - 8);
+    }
+    $('replayCaption').textContent = m.label + ' · הקו המקווקו הלבן הוא קו ישר תקין';
+    fi++;
+    if (fi >= m.frames.length) { fi = 0; mi = (mi + 1) % moments.length; }
+  }, 140); // slow motion
 }
 
 // horizontal gauge: colored zones + a marker where this foot measured

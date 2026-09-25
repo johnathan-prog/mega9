@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
-<link rel="stylesheet" href="css/app.css?v=32">
+<link rel="stylesheet" href="css/app.css?v=33">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 32</small></div>
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 33</small></div>
     <div class="progress"><i id="pbar"></i></div>
     <span class="step-label" id="plabel"></span>
   </header>
@@ -52,7 +52,7 @@
       <canvas id="overlay"></canvas>
       <div class="hud">
         <span class="tag" id="scanTag">מאתחל מצלמה…</span>
-        <span class="dbg" id="dbgLine"></span>
+        <span class="dist" id="distLight" hidden></span>
         <div class="angles" id="angleHud" hidden>
           <span class="ang">גיד אכילס<b id="hAch">–</b></span>
           <span class="ang">זווית ברך<b id="hKnee">–</b></span>
@@ -91,7 +91,11 @@
     <h2>תוצאות האבחון שלך</h2>
     <p class="sub">מבוסס על מעברי ההליכה, מבחן ההעמסה לכל רגל והשאלון.</p>
     <div id="results"></div>
-    <div class="card" id="evidence" hidden></div>
+    <div class="card center" id="replayCard" hidden>
+      <strong>ההליכה שלך, רגע המדידה</strong>
+      <canvas id="replay" width="300" height="400"></canvas>
+      <p class="small" id="replayCaption"></p>
+    </div>
     <div class="explain" id="logicLine"></div>
     <button class="btn" data-go="pay">למדרס המומלץ שלי</button>
     <button class="btn ghost" id="dumpBtn">הורד קובץ אבחון (לשליחה למפתח)</button>
@@ -104,6 +108,7 @@
       <div id="recSpec"></div>
       <div class="price"><span>זוג מדרסים בהתאמה אישית</span><b>₪690</b></div>
       <p class="small">כולל משלוח עד הבית · התאמה חוזרת חינם תוך 30 יום</p>
+      <p class="small verify">✓ כל מפרט מאומת אישית על ידי מומחה מוסמך לפני הייצור</p>
     </div>
     <div class="card paygrid" id="payBox">
       <strong>תשלום מאובטח</strong>
@@ -117,11 +122,11 @@
     <div class="card center">
       <div class="okball">✓</div>
       <h2>ההזמנה התקבלה!</h2>
-      <p class="sub">המדרסים שלך נכנסו לייצור לפי מפרט הסריקה. משלוח תוך 7–10 ימי עסקים. אישור נשלח ב־SMS ובוואטסאפ.</p>
+      <p class="sub">המומחה שלנו עובר על הסריקה ומאשר את המפרט, והמדרסים נכנסים לייצור. משלוח תוך 7–10 ימי עסקים. אישור נשלח ב־SMS ובוואטסאפ.</p>
     </div>
   </section>
 </div>
 
-<script type="module" src="js/app.js?v=32"></script>
+<script type="module" src="js/app.js?v=33"></script>
 </body>
 </html>
