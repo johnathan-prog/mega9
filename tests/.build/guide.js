@@ -129,7 +129,8 @@ export class WalkScan {
     this.rec = [];               // per-frame recording
     this.t0 = 0;
     this.extended = false;
-    this.motionWin = []; this.pausedMs = 0; this.lastTick = 0; this.lastNagAt = 0;
+    this.motionWin = []; this.pausedMs = 0; this.lastTick = 0;
+    this.praisedStart = false; this.praisedHalf = false;
     this.stateSince = Date.now();
     this.visibleSince = 0;
     this.presence = new Presence();
@@ -192,7 +193,7 @@ export class WalkScan {
         if (this.sinceMs() > 800 && speechIdle()) {
           this.t0 = Date.now();
           this.setState('RECORD', 'לך הלוך ושוב, טבעי, עד שאגיד עצור',
-            'עכשיו הסתובב ולך הלוך ושוב עד לנקודה. אל תתקרב קרוב מדי למצלמה — אחרת לא נוכל לבצע אבחנה. אני מקליט ואגיד מתי לעצור');
+            'עכשיו הסתובב ולך הלוך ושוב עד לנקודה הזו. אני מקליט ואגיד לך מתי לעצור');
         }
         break;
       case 'RECORD': {
@@ -200,40 +201,42 @@ export class WalkScan {
         // is the person actually MOVING? (leg scale + ankle swing over ~1.5s)
         const scl = lms ? P.legScale(lms) : null;
         if (scl) this.motionWin.push({ at: now, v: scl, sep: this.sep(lms) });
-        while (this.motionWin.length && now - this.motionWin[0].at > 1500) this.motionWin.shift();
+        while (this.motionWin.length && now - this.motionWin[0].at > 2200) this.motionWin.shift();
         const vs = this.motionWin.map(m => m.v), ss = this.motionWin.map(m => m.sep);
         const moving = vs.length > 8 &&
-          (Math.max(...vs) - Math.min(...vs) > 0.03 || Math.max(...ss) - Math.min(...ss) > 0.08);
+          (Math.max(...vs) - Math.min(...vs) > 0.018 || Math.max(...ss) - Math.min(...ss) > 0.05);
 
         // the recording clock RUNS ONLY WHILE someone is walking in frame —
         // sitting still or leaving the frame pauses it (never a blind timer)
         if (!moving || !lms) {
+          // silence: the clock simply pauses until walking resumes —
+          // never a negative line mid-scan
           this.pausedMs += now - (this.lastTick || now);
-          if (now - this.lastNagAt > 8000) {
-            this.lastNagAt = now;
-            const line = !lms
-              ? (this.lostReason(lms) === 'too_close'
-                  ? 'התקרבת יותר מדי — הסתובב כאן וחזור'
-                  : 'אני לא רואה אותך — חזור לפריים והמשך ללכת')
-              : 'אני לא רואה תנועה — לך הלוך ושוב בבקשה';
-            say(line, { force: true });
+        } else {
+          if (diag.ok) {
+            this.lastRecT = now - this.t0 - this.pausedMs;
+            this.rec.push({
+              t: this.lastRecT,
+              sep: this.sep(lms),
+              scale: scl || 0,
+              aR: Math.abs(P.achillesDeviation(lms, 'R')),
+              aL: Math.abs(P.achillesDeviation(lms, 'L')),
+              kR: P.kneeAxis(lms, 'R'),
+              kL: P.kneeAxis(lms, 'L'),
+            });
           }
-        } else if (scl && scl > 0.78 && now - (this.lastTurnCueAt || 0) > 4000) {
-          // time-critical: fires IMMEDIATELY, bypassing the speech queue,
-          // with margin before tracking would be lost
-          this.lastTurnCueAt = now;
-          say('הסתובב כאן וחזור', { urgent: true });
-        } else if (lms && diag.ok) {
-          this.lastRecT = now - this.t0 - this.pausedMs;
-          this.rec.push({
-            t: this.lastRecT,
-            sep: this.sep(lms),
-            scale: scl || 0,
-            aR: Math.abs(P.achillesDeviation(lms, 'R')),
-            aL: Math.abs(P.achillesDeviation(lms, 'L')),
-            kR: P.kneeAxis(lms, 'R'),
-            kL: P.kneeAxis(lms, 'L'),
-          });
+          if (scl && scl > 0.78 && now - (this.lastTurnCueAt || 0) > 4000) {
+            // time-critical: fires IMMEDIATELY, bypassing the speech queue,
+            // with margin before tracking would be lost
+            this.lastTurnCueAt = now;
+            say('הסתובב כאן וחזור', { urgent: true });
+          } else {
+            // positive-only feedback while actually walking
+            const el0 = now - this.t0 - this.pausedMs;
+            if (!this.praisedStart && el0 > 1500) { this.praisedStart = true; say('יופי', { force: true }); }
+            const total0 = RECORD_MS + (this.extended ? EXTEND_MS : 0);
+            if (!this.praisedHalf && el0 > total0 / 2) { this.praisedHalf = true; say('מעולה, עוד קצת', { force: true }); }
+          }
         }
         this.lastTick = now;
         const el = now - this.t0 - this.pausedMs;

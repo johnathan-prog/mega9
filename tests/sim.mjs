@@ -233,7 +233,8 @@ const ui = () => ({ instr() {}, tag() {} });
   spoken.length = 0;
   for (let i = 0; i < 900; i++) await tick(m, person({ dist: 2 })); // ~30s static
   check('static person does not finish the scan', !m.done, `state=${m.state}`);
-  check('voice asks for movement', spoken.some(s => s.includes('תנועה') || s.includes('הלוך ושוב')),
+  // positive-only policy: standing still earns SILENCE, not a nag
+  check('no negative lines while static', !spoken.some(s => s.includes('לא רואה')),
     JSON.stringify(spoken.slice(0, 3)));
 }
 
