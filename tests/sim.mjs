@@ -125,8 +125,8 @@ const ui = () => ({ instr() {}, tag() {} });
 {
   console.log('T2 walking scan (record → analyze)');
   const m = new G.WalkScan({ ui: ui() });
-  // sync facing the camera
-  for (let i = 0; i < 80 && m.state !== 'RECORD'; i++)
+  // fixed intro pacing — no gatekeeping
+  for (let i = 0; i < 200 && m.state !== 'RECORD'; i++)
     await tick(m, person({ dist: 3, face: 'front' }));
   check('reaches RECORD', m.state === 'RECORD', `state=${m.state}`);
   // walk back and forth naturally with 6° Achilles deviation
@@ -145,32 +145,23 @@ const ui = () => ({ instr() {}, tag() {} });
     Math.abs(r.R.ach - 6) < 2.5 && Math.abs(r.L.ach - 6) < 2.5);
 }
 
-// ================= T3: marginal detection must not flip-flop =================
+// ================= T3: nothing can wedge the recorder =================
 {
-  console.log('T3 flicker / flip-flop tolerance');
-  const m = new G.WalkScan({ ui: ui() });
-  for (let i = 0; i < 120 && m.state === 'FIND'; i++)
-    await tick(m, person({ conf: i % 3 === 0 ? 0.15 : 0.7 })); // 1/3 bad frames
-  check('syncs despite flicker', m.state !== 'FIND', `state=${m.state}`);
-
+  console.log('T3 recorder robustness');
+  // 30% dropped frames while walking — must still complete with angles
   const m2 = new G.WalkScan({ ui: ui() });
-  spoken.length = 0;
-  // detection dropping out entirely on 30% of frames — the killer case
-  for (let i = 0; i < 200 && m2.state === 'FIND'; i++)
-    await tick(m2, i % 10 < 3 ? null : person());
-  check('syncs despite 30% dropped frames', m2.state !== 'FIND', `state=${m2.state}`);
-  const seeYou = spoken.filter(s => s.includes('אני רואה אותך')).length;
-  const loseYou = spoken.filter(s => s.includes('לא רואה')).length;
-  check('no I-see-you/lost-you loop', seeYou <= 1 && loseYou === 0,
-    `seeYou=${seeYou} loseYou=${loseYou}`);
-
-  // a face-only close-up (legs invisible) must NEVER sync — it must coach
-  const m3 = new G.WalkScan({ ui: ui() });
-  spoken.length = 0;
-  for (let i = 0; i < 200; i++) await tick(m3, person({ conf: 0.1 }));
-  check('face-only never syncs', m3.state === 'FIND', `state=${m3.state}`);
-  check('coaches to step back', spoken.some(s => s.includes('התרחק') || s.includes('הרגליים')),
-    JSON.stringify(spoken.slice(0, 2)));
+  let t2 = 0;
+  while (!m2.done && t2 < 60000) {
+    const cyc = (t2 % 8000) / 8000;
+    const dist = cyc < 0.5 ? 1.6 + 2.8 * cyc : 3 - 2.8 * (cyc - 0.5);
+    const p = Math.floor(t2 / 33) % 10 < 3 ? null
+      : person({ dist, face: cyc < 0.5 ? 'back' : 'front', phase: t2 / 90, achDeg: 6 });
+    await tick(m2, p);
+    t2 += 33;
+  }
+  check('completes despite 30% dropped frames', m2.done, `state=${m2.state}`);
+  const r2 = m2.result();
+  check('angles recovered', r2.R && Math.abs(r2.R.ach - 6) < 2.5, JSON.stringify(r2.R));
 }
 
 // ================= T4: arch test measures the STANDING foot =================
@@ -223,19 +214,17 @@ const ui = () => ({ instr() {}, tag() {} });
     E.classify({ ach: 4.5, knee: 2, collapse: 30 }).cls === 'low');
 }
 
-// ================= T6: sitting still must NOT complete the scan =================
+// ================= T6: static person → completes, hands off to expert =================
 {
-  console.log('T6 blind-clock guard');
+  console.log('T6 no-walk handoff');
   const m = new G.WalkScan({ ui: ui() });
-  for (let i = 0; i < 80 && m.state !== 'RECORD'; i++)
-    await tick(m, person({ dist: 2 }));
-  check('reaches RECORD', m.state === 'RECORD', `state=${m.state}`);
   spoken.length = 0;
-  for (let i = 0; i < 900; i++) await tick(m, person({ dist: 2 })); // ~30s static
-  check('static person does not finish the scan', !m.done, `state=${m.state}`);
-  // positive-only policy: standing still earns SILENCE, not a nag
-  check('no negative lines while static', !spoken.some(s => s.includes('לא רואה')),
-    JSON.stringify(spoken.slice(0, 3)));
+  for (let i = 0; i < 1200 && !m.done; i++) await tick(m, person({ dist: 2 })); // static
+  check('recording completes even without walking', m.done, `state=${m.state}`);
+  const r = m.result();
+  check('result defers to expert (null angles)', r.R === null, JSON.stringify(r.R));
+  check('no negative lines', !spoken.some(s => s.includes('לא רואה')), JSON.stringify(spoken.slice(0,3)));
+  check('pending classification', E.classify({ ach: null, knee: null, collapse: null }).cls === 'pending');
 }
 
 console.log(failures ? `\n${failures} FAILURES` : '\nALL GREEN');

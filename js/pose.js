@@ -16,6 +16,12 @@ export async function initPose() {
     baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
     runningMode: 'VIDEO',
     numPoses: 1,
+    // low thresholds so PARTIAL bodies (close-up legs) still yield
+    // landmarks — the glowing overlay must appear the moment any part
+    // of the person is in frame, not only at full-body distance
+    minPoseDetectionConfidence: 0.25,
+    minPosePresenceConfidence: 0.25,
+    minTrackingConfidence: 0.25,
   });
   return landmarker;
 }
@@ -56,5 +62,5 @@ export function drawSkeleton(canvas, lms) {
 }
 
 
-export * from './posemath.js?v=34';
-import { LM } from './posemath.js?v=34';
+export * from './posemath.js?v=35';
+import { LM } from './posemath.js?v=35';

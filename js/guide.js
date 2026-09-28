@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=34';
+import * as P from './posemath.js?v=35';
 
 let hebVoice = null;
 function pickVoice() {
@@ -110,146 +110,85 @@ class SightCoach {
   }
 }
 
-// ---------- walking scan (ankle height) ----------
-// Industry-standard protocol (as in commercial smartphone gait analysis):
-// the user simply walks back and forth NATURALLY for a fixed recording
-// window while every frame's landmarks are recorded; the analysis happens
-// AFTERWARD on the whole recording — gait cycles are segmented, angles
-// are sampled at single-support instants of the walking-toward segments,
-// outlier cycles are discarded, and a minimum cycle count is enforced
-// (the recording auto-extends once if too few clean cycles were caught).
-// Live voice is used only for setup coaching and start/stop — never to
-// choreograph individual steps.
+// ---------- walking recording (judgment-free) ----------
+// The camera RECORDS, period. Fixed, calm instructions on a transparent
+// countdown — no live gatekeeping that can wedge or nag. The glowing
+// overlay is an effect, not a judge; analysis runs afterward on whatever
+// was captured, and too few cycles simply hands the case to the expert.
 const RECORD_MS = 20000;
 const EXTEND_MS = 8000;
 export class WalkScan {
   constructor({ ui }) {
     this.ui = ui;
-    this.state = 'FIND';
-    this.rec = [];               // per-frame recording
+    this.state = 'INTRO';
+    this.rec = [];
     this.t0 = 0;
     this.extended = false;
-    this.motionWin = []; this.pausedMs = 0; this.lastTick = 0;
-    this.praisedStart = false; this.praisedHalf = false;
+    this.praisedHalf = false;
+    this.welcomed = false;
+    this.lastTurnCueAt = 0;
     this.stateSince = Date.now();
-    this.visibleSince = 0;
-    this.presence = new Presence();
-    this.coach = new SightCoach(ui);
-    this.ui.instr('עמוד מול המצלמה, במרחק כ־3 מטרים');
-  }
-  setState(st, instr, speak) {
-    if (this.state !== st) {
-      this.state = st; this.stateSince = Date.now();
-      if (instr != null) this.ui.instr(instr);
-      if (speak) say(speak, { force: true });
-    } else if (instr != null) this.ui.instr(instr);
+    this.ui.instr('עמוד מול המצלמה — שכל הגוף ייכנס לפריים');
   }
   sinceMs() { return Date.now() - this.stateSince; }
   get done() { return this.state === 'DONE'; }
   progress() {
-    if (this.state === 'FIND') return 0.05;
-    if (this.state === 'SYNC') return 0.12;
+    if (this.state === 'INTRO') return 0.05;
     if (this.state === 'RECORD') {
       const total = RECORD_MS + (this.extended ? EXTEND_MS : 0);
-      return 0.15 + 0.85 * Math.min(1, (Date.now() - this.t0) / total);
+      return 0.1 + 0.9 * Math.min(1, (Date.now() - this.t0) / total);
     }
     return 1;
   }
-  lostReason(lms) {
-    if (lms) return null;
-    const recently = Date.now() - (this.lastSeenAt || 0) < 2500;
-    return recently && (this.lastScale || 0) > 0.6 ? 'too_close' : 'no_person';
-  }
   frame(lms) {
-    const diag = P.diagnose(lms);
-    if (lms) {
-      const sc = P.legScale(lms);
-      if (sc) { this.lastScale = sc; this.lastSeenAt = Date.now(); }
-    }
+    const now = Date.now();
     switch (this.state) {
-      case 'FIND': {
-        // sticky presence of the FULL body at a measurable distance —
-        // a face close-up or a too-near stance must never count as synced
-        const sc0 = lms ? P.legScale(lms) : 0;
-        const present = this.presence.feed(!!lms && diag.ok && sc0 > 0 && sc0 < 0.78);
-        if (present) {
-          if (!this.visibleSince) {
-            this.visibleSince = Date.now();
-            this.ui.instr('רואים אותך ✓');
-            say('אני רואה אותך. עמוד רגע במקום', { force: true });
-          }
-          this.coach.feed(diag); // advisory only
-          if (Date.now() - this.visibleSince > 1500)
-            this.setState('SYNC', 'מסונכרן ✓', 'מסונכרן');
-        } else {
-          this.visibleSince = 0;
-          // coach with the REAL reason: a close-up face gets "step back",
-          // an empty frame gets "I can't see you"
-          this.coach.feed(lms ? diag : { ok: false, reason: this.lostReason(lms) });
+      case 'INTRO':
+        if (!this.welcomed) {
+          this.welcomed = true;
+          say('עמוד מול המצלמה, כך שכל הגוף בפריים. מתחילים עוד רגע', { force: true });
         }
-        break;
-      }
-      case 'SYNC':
-        if (this.sinceMs() > 800 && speechIdle()) {
-          this.t0 = Date.now();
-          this.setState('RECORD', 'לך הלוך ושוב, טבעי, עד שאגיד עצור',
-            'עכשיו הסתובב ולך הלוך ושוב עד לנקודה הזו. אני מקליט ואגיד לך מתי לעצור');
+        if (this.sinceMs() > 4000 && speechIdle()) {
+          this.state = 'RECORD'; this.t0 = now; this.stateSince = now;
+          this.ui.instr('לך הלוך ושוב, טבעי');
+          say('עכשיו הסתובב ולך הלוך ושוב עד לנקודה הזו, בקצב טבעי. אני מקליט עשרים שניות', { force: true });
         }
         break;
       case 'RECORD': {
-        const now = Date.now();
-        // is the person actually MOVING? (leg scale + ankle swing over ~1.5s)
+        const el = now - this.t0;
         const scl = lms ? P.legScale(lms) : null;
-        if (scl) this.motionWin.push({ at: now, v: scl, sep: this.sep(lms) });
-        while (this.motionWin.length && now - this.motionWin[0].at > 2200) this.motionWin.shift();
-        const vs = this.motionWin.map(m => m.v), ss = this.motionWin.map(m => m.sep);
-        const moving = vs.length > 8 &&
-          (Math.max(...vs) - Math.min(...vs) > 0.018 || Math.max(...ss) - Math.min(...ss) > 0.05);
-
-        // the recording clock RUNS ONLY WHILE someone is walking in frame —
-        // sitting still or leaving the frame pauses it (never a blind timer)
-        if (!moving || !lms) {
-          // silence: the clock simply pauses until walking resumes —
-          // never a negative line mid-scan
-          this.pausedMs += now - (this.lastTick || now);
-        } else {
-          if (diag.ok) {
-            this.lastRecT = now - this.t0 - this.pausedMs;
-            this.rec.push({
-              t: this.lastRecT,
-              sep: this.sep(lms),
-              scale: scl || 0,
-              aR: Math.abs(P.achillesDeviation(lms, 'R')),
-              aL: Math.abs(P.achillesDeviation(lms, 'L')),
-              kR: P.kneeAxis(lms, 'R'),
-              kL: P.kneeAxis(lms, 'L'),
-            });
-          }
-          if (scl && scl > 0.78 && now - (this.lastTurnCueAt || 0) > 4000) {
-            // time-critical: fires IMMEDIATELY, bypassing the speech queue,
-            // with margin before tracking would be lost
-            this.lastTurnCueAt = now;
-            say('הסתובב כאן וחזור', { urgent: true });
-          } else {
-            // positive-only feedback while actually walking
-            const el0 = now - this.t0 - this.pausedMs;
-            if (!this.praisedStart && el0 > 1500) { this.praisedStart = true; say('יופי', { force: true }); }
-            const total0 = RECORD_MS + (this.extended ? EXTEND_MS : 0);
-            if (!this.praisedHalf && el0 > total0 / 2) { this.praisedHalf = true; say('מעולה, עוד קצת', { force: true }); }
-          }
+        if (lms && P.diagnose(lms).ok) {
+          this.lastRecT = el;
+          this.rec.push({
+            t: el,
+            sep: this.sep(lms),
+            scale: scl || 0,
+            aR: Math.abs(P.achillesDeviation(lms, 'R')),
+            aL: Math.abs(P.achillesDeviation(lms, 'L')),
+            kR: P.kneeAxis(lms, 'R'),
+            kL: P.kneeAxis(lms, 'L'),
+          });
         }
-        this.lastTick = now;
-        const el = now - this.t0 - this.pausedMs;
+        if (scl && scl > 0.78 && now - this.lastTurnCueAt > 4000) {
+          this.lastTurnCueAt = now;
+          say('הסתובב כאן וחזור', { urgent: true });
+        }
         const total = RECORD_MS + (this.extended ? EXTEND_MS : 0);
-        this.ui.instr(moving ? `מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))} שניות` : 'לך הלוך ושוב');
+        if (!this.praisedHalf && el > total / 2) {
+          this.praisedHalf = true;
+          say('מעולה, ממשיך ככה', { force: true });
+        }
+        this.ui.instr(`מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))}`);
         if (el >= total) {
           const a = analyzeGait(this.rec);
           if (a.cycles < 6 && !this.extended) {
-            this.extended = true;
+            this.extended = true; this.praisedHalf = false;
             say('עוד כמה שניות, המשך ללכת הלוך ושוב', { force: true });
           } else {
             say('עצור', { urgent: true });
-            this.setState('DONE', 'מעולה! השלב הושלם', 'מעולה, השלב הושלם');
+            this.state = 'DONE';
+            this.ui.instr('מעולה! ההקלטה הושלמה');
+            say('מעולה! ההקלטה הושלמה, מכינים את הדוח שלך', { force: true });
           }
         }
         break;
@@ -263,6 +202,8 @@ export class WalkScan {
   }
   result() {
     const a = analyzeGait(this.rec);
+    if (a.cycles < 3) return { R: null, L: null, frames: this.rec.length, cycles: a.cycles,
+      achTimes: [], kneeTimes: [] };
     return { R: a.R, L: a.L, frames: this.rec.length, cycles: a.cycles,
       achTimes: a.achTimes || [], kneeTimes: a.kneeTimes || [] };
   }
@@ -328,6 +269,7 @@ function analyzeGait(rec) {
     kneeTimes: kneeIdx.map(i => rec[i].t),
   };
 }
+
 
 // ---------- single-leg arch-loading test ----------
 // The arch is MEDIAL (inner side). To film the right foot's arch the

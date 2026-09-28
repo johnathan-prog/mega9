@@ -16,6 +16,15 @@ export const THRESHOLDS = {
 // collapse may be null when the single-leg loading test was not run —
 // the tree then rests on the Achilles line and knee axis alone.
 export function classify(f, t = THRESHOLDS) {
+  // recording succeeded but too few clean gait cycles were captured —
+  // the human expert completes the analysis from the footage
+  if (f.ach == null) {
+    return {
+      cls: 'pending', name: 'בהשלמת מומחה', color: 'var(--sub)',
+      plain: 'ההליכה נקלטה — המומחה שלנו משלים את הניתוח מהצילומים ויחזור אליך בוואטסאפ.',
+      why: '', spec: [],
+    };
+  }
   const hasCollapse = f.collapse != null;
   if (f.ach <= t.achillesStraightMax) {
     return {

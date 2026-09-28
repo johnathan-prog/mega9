@@ -1,11 +1,11 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=34';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=34';
-import { classify, LOGIC_LINE } from './engine.js?v=34';
+import * as P from './pose.js?v=35';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=35';
+import { classify, LOGIC_LINE } from './engine.js?v=35';
 
 const $ = id => document.getElementById(id);
-const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', measure: 'מידות', results: 'תוצאות', pay: 'תשלום', done: 'סיום' };
-const ORDER = ['intro', 'quiz', 'setup', 'scan', 'measure', 'results', 'pay', 'done'];
+const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
+const ORDER = ['intro', 'quiz', 'setup', 'scan', 'results'];
 let cur = 'intro';
 
 function go(name) {
@@ -190,21 +190,19 @@ async function runStage(st) {
   if (abortScan) { prepStage(stageIdx); return; }
 
   scanResults[st.key] = machine.result();
-  if (stageIdx + 1 < STAGES.length) prepStage(stageIdx + 1);
-  else go('measure');
+  if (stageIdx + 1 < STAGES.length) { prepStage(stageIdx + 1); return; }
+  const walk = scanResults.walk || { R: null, L: null };
+  const profile = {
+    R: walk.R ? { ...walk.R, collapse: null } : { ach: null, knee: null, collapse: null },
+    L: walk.L ? { ...walk.L, collapse: null } : { ach: null, knee: null, collapse: null },
+  };
+  renderResults(profile);
+  go('results');
 }
 
 /* ================= results ================= */
 function num(id) { return parseFloat($(id).value) || 0; }
-$('analyzeBtn').onclick = () => {
-  const walk = scanResults.walk || { R: { ach: 0, knee: 0 }, L: { ach: 0, knee: 0 } };
-  const profile = {
-    R: { ach: walk.R.ach, knee: walk.R.knee, collapse: null },
-    L: { ach: walk.L.ach, knee: walk.L.knee, collapse: null },
-  };
-  renderResults(profile);
-  go('results');
-};
+
 
 function renderResults(profile) {
   const box = $('results'); box.innerHTML = '';
@@ -214,14 +212,15 @@ function renderResults(profile) {
     const cls = v => v ? 'dev' : 'norm';
     const el = document.createElement('div');
     el.className = 'res-foot';
-    el.innerHTML = `
-      <div class="res-head"><strong>${label}</strong><span class="pill" style="background:${c.color}">${c.name}</span></div>
-      <p class="plain">${c.plain}</p>
-      ${gauge('קו העקב בדריכה', f.ach, 0, 10, [[0, 3, 'var(--ok)'], [3, 6, 'var(--low)'], [6, 10, 'var(--flat)']],
-        'ישר', 'קורס פנימה')}
-      <div class="metric"><span>מידות</span><b>${num(li)} × ${num(wi)} ס״מ</b></div>
-      <details class="small"><summary>הפירוט המקצועי</summary>
-        סטיית גיד אכילס: ${f.ach}° · ציר ברך: ${f.knee}°<br>${c.why}</details>`;
+    el.innerHTML = c.cls === 'pending'
+      ? `<div class="res-head"><strong>${label}</strong><span class="pill" style="background:${c.color}">${c.name}</span></div>
+         <p class="plain">${c.plain}</p>`
+      : `<div class="res-head"><strong>${label}</strong><span class="pill" style="background:${c.color}">${c.name}</span></div>
+         <p class="plain">${c.plain}</p>
+         ${gauge('קו העקב בדריכה', f.ach, 0, 10, [[0, 3, 'var(--ok)'], [3, 6, 'var(--low)'], [6, 10, 'var(--flat)']],
+           'ישר', 'קורס פנימה')}
+         <details class="small"><summary>הפירוט המקצועי</summary>
+           סטיית גיד אכילס: ${f.ach}° · ציר ברך: ${f.knee}°<br>${c.why}</details>`;
     box.appendChild(el);
   });
   $('logicLine').textContent = LOGIC_LINE;
@@ -250,7 +249,7 @@ function drawLiveAngles(canvas, lms) {
   for (const side of ['R', 'L']) {
     const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
     const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
-    if ((lms[HEEL].visibility ?? 1) < 0.3) continue;
+    if ((lms[HEEL].visibility ?? 1) < 0.15) continue;
     const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
     x.strokeStyle = '#FFD166'; x.lineWidth = 4;
     x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
@@ -360,10 +359,71 @@ function gauge(label, val, min, max, zones, loLabel, hiLabel) {
     <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
 }
 
+/* ================= WhatsApp handoff + shareable report ================= */
+const WHATSAPP = '972500000000'; // TODO: replace with the Vizzy business number
+function waLink() {
+  return 'https://wa.me/' + WHATSAPP + '?text=' +
+    encodeURIComponent('סיימתי את ניתוח הדריכה הביתי — מצרף את הדוח שלי');
+}
+async function shareReport() {
+  const c = document.createElement('canvas');
+  c.width = 1080; c.height = 1400;
+  const x = c.getContext('2d');
+  x.fillStyle = '#F4F6F5'; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = '#0E7C66'; x.fillRect(0, 0, c.width, 150);
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.direction = 'rtl';
+  x.font = '700 54px Assistant, sans-serif';
+  x.fillText('דוח ניתוח דריכה ביתי', c.width / 2, 95);
+  const walk = scanResults.walk || {};
+  let y = 240;
+  for (const [k, label] of [['R', 'רגל ימין'], ['L', 'רגל שמאל']]) {
+    const f = walk[k] ? { ...walk[k], collapse: null } : { ach: null, knee: null, collapse: null };
+    const cRes = classify(f);
+    x.fillStyle = '#15252B'; x.font = '700 44px Assistant, sans-serif';
+    x.fillText(label + ' — ' + cRes.name, c.width / 2, y);
+    x.fillStyle = '#5B6E74'; x.font = '400 32px Assistant, sans-serif';
+    wrapText(x, cRes.plain, c.width / 2, y + 55, 900, 44);
+    y += 220;
+  }
+  // evidence stills
+  const pics = snaps.slice(-2);
+  let px = c.width / 2 - (pics.length * 280) / 2;
+  await Promise.all(pics.map(s => new Promise(res => {
+    const im = new Image();
+    im.onload = () => { x.drawImage(im, px, y, 260, 346); px += 290; res(); };
+    im.onerror = res; im.src = s.url;
+  })));
+  y += 400;
+  x.fillStyle = '#0E7C66'; x.font = '700 38px Assistant, sans-serif';
+  x.fillText('השלב הבא: ערכת טביעת רגל ביתית לבניית מדרס אישי', c.width / 2, y);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+  const file = new File([blob], 'foot-report.jpg', { type: 'image/jpeg' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text: 'הדוח שלי מניתוח הדריכה הביתי' });
+      return;
+    }
+  } catch { /* user cancelled or unsupported — fall through */ }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'foot-report.jpg'; a.click();
+  window.open(waLink(), '_blank');
+}
+function wrapText(x, text, cx, y, maxW, lh) {
+  const words = (text || '').split(' ');
+  let line = '';
+  for (const w of words) {
+    if (x.measureText(line + w).width > maxW) { x.fillText(line, cx, y); y += lh; line = w + ' '; }
+    else line += w + ' ';
+  }
+  x.fillText(line, cx, y);
+}
+
 /* ================= payment ================= */
 // Production: replace with the PSP's hosted page / iframe (Grow, Tranzila,
 // Stripe). The order payload below is what the backend receives.
-$('payBtn').onclick = () => {
+$('waBtn').onclick = () => { window.open(waLink(), '_blank'); };
+$('shareBtn').onclick = () => { shareReport(); };
+$('payBtn') && ($('payBtn').onclick = () => {
   const order = {
     ts: new Date().toISOString(),
     answers,
@@ -371,8 +431,7 @@ $('payBtn').onclick = () => {
     measurements: { R: [num('mRL'), num('mRW')], L: [num('mLL'), num('mLW')] },
   };
   console.log('ORDER PAYLOAD', order);
-  go('done');
-};
+});
 
 /* ================= boot ================= */
 (function boot() {
