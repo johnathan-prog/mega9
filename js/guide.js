@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=35';
+import * as P from './posemath.js?v=36';
 
 let hebVoice = null;
 function pickVoice() {
@@ -118,9 +118,12 @@ class SightCoach {
 const RECORD_MS = 20000;
 const EXTEND_MS = 8000;
 export class WalkScan {
-  constructor({ ui }) {
+  constructor({ ui, place = false }) {
     this.ui = ui;
-    this.state = 'INTRO';
+    // sensor snapshot fed by the host each frame: {supported, still, tiltOk, drop}
+    this.sensor = { supported: false, still: false, tiltOk: false, drop: 0 };
+    this.state = place ? 'PLACE' : 'INTRO';
+    this.placeStableAt = 0;
     this.rec = [];
     this.t0 = 0;
     this.extended = false;
@@ -140,9 +143,39 @@ export class WalkScan {
     }
     return 1;
   }
+  restartRecording() {
+    // second chance after a low-quality capture: keep the camera rolling
+    this.rec = []; this.extended = false; this.praisedHalf = false;
+    this.state = 'RECORD'; this.t0 = Date.now(); this.stateSince = this.t0;
+    say('מקליט שוב עשרים שניות — לך הלוך ושוב בקצב טבעי', { force: true });
+  }
   frame(lms) {
     const now = Date.now();
     switch (this.state) {
+      case 'PLACE': {
+        // the phone itself reports being lowered and set down — the
+        // height meter UI mirrors this.sensor.drop in real time
+        if (!this.welcomedPlace) {
+          this.welcomedPlace = true;
+          this.ui.instr('הורד את הטלפון והשען אותו על הרצפה');
+          say('הורד את הטלפון לגובה הרצפה, והשען אותו כך שהמסך פונה אליך', { force: true });
+        }
+        const s = this.sensor;
+        const settled = s.supported ? (s.still && s.tiltOk) : false;
+        if (settled) {
+          if (!this.placeStableAt) this.placeStableAt = now;
+          if (now - this.placeStableAt > 1200) {
+            this.state = 'INTRO'; this.stateSince = now;
+            say('מושלם, הטלפון במקום. עכשיו התרחק אחורה', { force: true });
+          }
+        } else this.placeStableAt = 0;
+        // never wedge: no sensors → move on after 5s; even with sensors,
+        // 12s is the hard ceiling for this stage
+        if ((!s.supported && this.sinceMs() > 5000) || this.sinceMs() > 12000) {
+          this.state = 'INTRO'; this.stateSince = now;
+        }
+        break;
+      }
       case 'INTRO':
         if (!this.welcomed) {
           this.welcomed = true;

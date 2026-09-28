@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=35';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=35';
-import { classify, LOGIC_LINE } from './engine.js?v=35';
+import * as P from './pose.js?v=36';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=36';
+import { classify, LOGIC_LINE } from './engine.js?v=36';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -129,8 +129,47 @@ function prepStage(i) {
     `<div class="setup"><span class="n">${n + 1}</span>${s}</div>`).join('');
   go('setup');
 }
-$('setupStart').onclick = () => {
+/* ---- phone sensors: placement detection + live height meter ---- */
+const sensor = { supported: false, still: false, tiltOk: false, drop: 0 };
+let accWin = [];
+function startSensors() {
+  const onMotion = e => {
+    const a = e.accelerationIncludingGravity;
+    if (!a || a.x == null) return; // headless/emulated events carry nulls
+    sensor.supported = true;
+    const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    accWin.push({ t: Date.now(), mag });
+    while (accWin.length && Date.now() - accWin[0].t > 700) accWin.shift();
+    const mags = accWin.map(m => m.mag);
+    const jitter = Math.max(...mags) - Math.min(...mags);
+    sensor.still = accWin.length > 8 && jitter < 0.6;
+    const lin = e.acceleration;
+    if (lin && lin.y != null) {
+      sensor.drop = Math.max(0, Math.min(1, sensor.drop + (lin.y > 1.2 ? 0.06 : lin.y < -1.2 ? -0.02 : -0.005)));
+    }
+  };
+  const onOrient = e => {
+    if (e.beta == null) return; // headless/emulated events carry nulls
+    sensor.supported = true;
+    // propped upright-ish, leaning back slightly
+    sensor.tiltOk = e.beta > 50 && e.beta < 95;
+  };
+  window.addEventListener('devicemotion', onMotion);
+  window.addEventListener('deviceorientation', onOrient);
+}
+async function askMotionPermission() {
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission)
+      await DeviceMotionEvent.requestPermission();
+    if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission)
+      await DeviceOrientationEvent.requestPermission();
+  } catch { /* denied — the place stage will auto-skip */ }
+}
+
+$('setupStart').onclick = async () => {
   primeTTS(); // mobile TTS unlocks only from a user gesture
+  await askMotionPermission();
+  startSensors();
   runStage(STAGES[stageIdx]);
 };
 
@@ -158,7 +197,8 @@ async function runStage(st) {
   overlay.width = video.videoWidth; overlay.height = video.videoHeight;
   const machine = st.key === 'archR' ? new ArchTest({ side: 'R', ui })
     : st.key === 'archL' ? new ArchTest({ side: 'L', ui })
-    : new WalkScan({ ui });
+    : new WalkScan({ ui, place: true });
+  let retried = false;
   ui.tag(st.title);
   $('angleHud').hidden = !(machine instanceof WalkScan);
   $('scanHint').textContent = 'עקוב אחרי ההנחיות על המסך ובקול';
@@ -167,6 +207,8 @@ async function runStage(st) {
     const loop = (ts) => {
       if (abortScan) return resolve();
       const lms = P.detect(video, ts ?? performance.now());
+      machine.sensor = sensor;
+      updateHeightMeter(machine.state);
       logFrame(st.key, lms, machine.lastRecT);
       if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
         captureSnap(video, lms, machine.lastRecT);
@@ -180,7 +222,16 @@ async function runStage(st) {
         $('hAch').textContent = ((Math.abs(P.achillesDeviation(lms, 'R')) + Math.abs(P.achillesDeviation(lms, 'L'))) / 2).toFixed(1) + '°';
         $('hKnee').textContent = ((P.kneeAxis(lms, 'R') + P.kneeAxis(lms, 'L')) / 2).toFixed(1) + '°';
       }
-      if (machine.done) return resolve();
+      if (machine.done) {
+        if (retried === 'pending') { requestAnimationFrame(loop); return; }
+        const r = machine.result ? machine.result() : null;
+        if (r && r.R === null && !retried && machine.restartRecording) {
+          retried = 'pending';
+          $('bigInstr').textContent = 'לא קלטתי מספיק צעדים — מנסים שוב';
+          say('לא קלטתי מספיק צעדים. בוא ננסה עוד פעם — לך הלוך ושוב בקצב טבעי', { force: true });
+          setTimeout(() => { retried = true; machine.restartRecording(); }, 3500);
+        } else return resolve();
+      }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -286,6 +337,17 @@ function updateDistLight(lms, state) {
   else if (sc > 0.78) { el.className = 'dist warn'; el.textContent = 'קרוב מדי — התרחק'; }
   else if (!P.diagnose(lms).ok) { el.className = 'dist'; el.textContent = 'כל הגוף בפריים…'; }
   else { el.className = 'dist good'; el.textContent = 'מרחק מצוין'; }
+}
+
+// live height meter: the phone icon slides down as the device is lowered
+function updateHeightMeter(state) {
+  const el = $('heightMeter');
+  if (state !== 'PLACE' || !sensor.supported) { el.hidden = true; return; }
+  el.hidden = false;
+  const dot = $('heightDot');
+  const pct = sensor.still && sensor.tiltOk ? 100 : sensor.drop * 100;
+  dot.style.top = `calc(${Math.min(100, pct)}% - 12px)`;
+  dot.classList.toggle('ok', sensor.still && sensor.tiltOk);
 }
 
 function nearestSnap(t) {
