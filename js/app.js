@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=46';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=46';
-import { classify, LOGIC_LINE } from './engine.js?v=46';
+import * as P from './pose.js?v=47';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=47';
+import { classify, LOGIC_LINE } from './engine.js?v=47';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', details: 'פרטים', setup: 'הכנה', scan: 'סריקה', analyzing: 'ניתוח', results: 'הדוח שלך' };
@@ -281,6 +281,7 @@ function renderResults(profile) {
   });
   [...box.children].forEach((el, i) => { el.style.animationDelay = (i * 0.25) + 's'; });
   $('logicLine').textContent = LOGIC_LINE;
+  renderOfficialReport(profile);
   renderEvidence();
   animateGauges();
   $('dumpBtn').onclick = () => {
@@ -571,7 +572,6 @@ function renderEvidence() {
   };
   collect(walk.achMoments);
   collect(walk.kneeMoments);
-  renderSkeletonReplay();
   if (!moments.length) { card.hidden = true; return; }
   card.hidden = false;
   const x = cv.getContext('2d');
@@ -633,313 +633,81 @@ function gauge(label, val, min, max, zones, loLabel, hiLabel) {
     <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
 }
 
-// skeleton-only replay: the customer's full recorded movement as clean
-// glowing lines on dark — the "x-ray" view of their gait state
-let skelTimer = null;
-function renderSkeletonReplay() {
-  const card = $('skelCard'), cv = $('skelReplay');
-  const frames = rawLog.filter(f => f.l && f.rt != null);
-  if (frames.length < 20) { card.hidden = true; return; }
-  card.hidden = false;
-  const x = cv.getContext('2d');
-  let fi = 0;
-  clearInterval(skelTimer);
-  skelTimer = setInterval(() => {
-    const f = frames[fi];
-    const lms = f.l.map(a => ({ x: a[0], y: a[1], visibility: a[2] }));
-    x.fillStyle = '#0B1416'; x.fillRect(0, 0, cv.width, cv.height);
-    const pt = i => [(1 - lms[i].x) * cv.width, lms[i].y * cv.height];
-    x.lineCap = 'round';
-    // glowing body lines
-    x.shadowColor = '#4FE3C1'; x.shadowBlur = 10;
-    x.strokeStyle = '#4FE3C1'; x.lineWidth = 3;
-    const seg = (a, b) => {
-      if ((lms[a].visibility ?? 1) < 0.2 || (lms[b].visibility ?? 1) < 0.2) return;
-      const [ax, ay] = pt(a), [bx, by] = pt(b);
-      x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
-    };
-    seg(P.LM.L_HIP, P.LM.R_HIP);
-    seg(P.LM.R_HIP, P.LM.R_KNEE); seg(P.LM.R_KNEE, P.LM.R_ANKLE);
-    seg(P.LM.R_ANKLE, P.LM.R_HEEL); seg(P.LM.R_HEEL, P.LM.R_TOE);
-    seg(P.LM.L_HIP, P.LM.L_KNEE); seg(P.LM.L_KNEE, P.LM.L_ANKLE);
-    seg(P.LM.L_ANKLE, P.LM.L_HEEL); seg(P.LM.L_HEEL, P.LM.L_TOE);
-    x.shadowBlur = 0;
-    // heel lines + live angle
-    let maxDev = 0;
-    for (const side of ['R', 'L']) {
-      const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
-      const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
-      if ((lms[HEEL].visibility ?? 1) < 0.2) continue;
-      const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
-      x.strokeStyle = '#FFD166'; x.lineWidth = 3;
-      x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
-      maxDev = Math.max(maxDev, Math.abs(P.achillesDeviation(lms, side)));
-    }
-    x.font = '700 22px Assistant, sans-serif'; x.fillStyle = '#FFD166';
-    x.textAlign = 'left';
-    x.fillText(maxDev.toFixed(0) + '°', 14, 34);
-    $('skelCaption').textContent = 'כך המערכת רואה את התנועה שלך — הקו הצהוב הוא קו העקב';
-    fi = (fi + 1) % frames.length;
-  }, 60);
-}
-
-/* ---- report dramatization: real-number analysis reveal ---- */
-function playAnalyzing(walk, done) {
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const lines = [
-    `מנתח ${rawLog.filter(f => f.l).length} פריימים של תנועה`,
-    `זוהו ${walk.cycles || 0} מחזורי הליכה`,
-    walk.R ? `נמדדו זוויות עקב: ימין ${walk.R.ach}° · שמאל ${walk.L.ach}°` : 'מעביר את הצילומים לבחינת המומחה',
-    'מרכיב את הדוח האישי שלך…',
-  ];
-  const ul = $('anaLines');
-  ul.innerHTML = lines.map(l => `<li>${l}</li>`).join('');
-  go('analyzing');
-  if (reduced) {
-    // reduced motion: everything visible at once, still a readable beat
-    [...ul.children].forEach(li => li.classList.add('on'));
-    $('anaGauge').style.width = '100%';
-    setTimeout(done, 1400);
-    return;
-  }
-  const items = [...ul.children];
-  items.forEach((li, i) => setTimeout(() => {
-    li.classList.add('on');
-    beep(900 + i * 120, 0.05, 0.1);
-    $('anaGauge').style.width = ((i + 1) / items.length * 100) + '%';
-  }, 500 + i * 650));
-  setTimeout(done, 500 + items.length * 650 + 500);
-}
-
-// count the gauge numbers up and slide the markers into place
-function animateGauges() {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  document.querySelectorAll('#results .gaugebox').forEach((box, bi) => {
-    const b = box.querySelector('.glabel b');
-    const u = box.querySelector('.gtrack u');
-    if (!b || !u) return;
-    const finalText = b.textContent;
-    const target = parseFloat(finalText) || 0;
-    const finalRight = u.style.right;
-    b.textContent = '0°';
-    u.style.right = 'calc(0% - 7px)';
-    setTimeout(() => {
-      u.style.right = finalRight; // CSS transition slides the marker
-      const t0 = performance.now();
-      const tick = now => {
-        const p = Math.min(1, (now - t0) / 900);
-        b.textContent = (target * (1 - Math.pow(1 - p, 3))).toFixed(1) + '°';
-        if (p < 1) requestAnimationFrame(tick);
-        else { b.textContent = finalText; beep(620, 0.1, 0.1, 940); }
-      };
-      requestAnimationFrame(tick);
-    }, 600 + bi * 250);
-  });
-}
-
-$('detailsNext').onclick = () => {
-  answers.person = {
-    name: ($('pName').value || '').trim(),
-    age: $('pAge').value, shoe: $('pShoe').value,
-  };
-  prepStage(0);
-};
-
-/* ================= official branded report (canvas) ================= */
-const INK = '#15252B', SUB = '#5B6E74', ACC = '#0E7C66', PAPER = '#FFFFFF', BG = '#F4F6F5';
-function rr(x, a, b, w2, h2, r) { x.beginPath(); x.roundRect(a, b, w2, h2, r); }
-function heb(x, size, weight = 400, color = INK) {
-  x.font = `${weight} ${size}px Assistant, sans-serif`; x.fillStyle = color; x.direction = 'rtl';
-}
-function drawFootMap(x, cx, cy, w, h, cls, mirror) {
-  // stylized foot outline
-  x.save(); x.translate(cx, cy); if (mirror) x.scale(-1, 1);
-  x.strokeStyle = '#B9CCC7'; x.lineWidth = 3; x.fillStyle = '#Eef4f2';
-  x.beginPath();
-  x.ellipse(0, -h * 0.28, w * 0.34, h * 0.24, 0, 0, 7);        // forefoot
-  x.fill(); x.stroke();
-  x.beginPath();
-  x.ellipse(w * 0.02, h * 0.22, w * 0.26, h * 0.3, 0.08, 0, 7); // heel
-  x.fill(); x.stroke();
-  x.beginPath();
-  x.ellipse(0, -h * 0.02, w * 0.28, h * 0.26, 0, 0, 7);         // midfoot
-  x.fill(); x.stroke();
-  const blob = (bx, by, r, col, alpha) => {
-    const g = x.createRadialGradient(bx, by, 2, bx, by, r);
-    g.addColorStop(0, col); g.addColorStop(1, col + '00');
-    x.globalAlpha = alpha; x.fillStyle = g;
-    x.beginPath(); x.arc(bx, by, r, 0, 7); x.fill(); x.globalAlpha = 1;
-  };
+/* ================= official branded report (HTML → image) ================= */
+const FOOT_PATH = 'M50,6 C74,6 82,32 80,62 C79,86 85,100 85,122 C85,162 74,202 50,208 C26,202 15,162 15,122 C15,100 21,86 20,62 C18,32 26,6 50,6 Z';
+function footBlobs(cls) {
   const RED = '#E2574C', ORG = '#E8A13C', YEL = '#E7CD6A';
-  if (cls === 'flat') { blob(0, h * 0.22, w * 0.34, RED, .95); blob(-w * 0.16, 0, w * 0.3, ORG, .9); blob(0, -h * 0.3, w * 0.22, YEL, .8); }
-  else if (cls === 'high') { blob(0, h * 0.22, w * 0.3, RED, .95); blob(0, -h * 0.3, w * 0.3, RED, .85); blob(w * 0.14, 0, w * 0.16, YEL, .7); }
-  else if (cls === 'low') { blob(0, h * 0.22, w * 0.3, ORG, .95); blob(-w * 0.14, 0, w * 0.26, ORG, .8); blob(0, -h * 0.3, w * 0.2, YEL, .8); }
-  else { blob(0, h * 0.22, w * 0.26, YEL, .8); blob(0, -h * 0.3, w * 0.18, YEL, .7); }
-  x.restore();
+  if (cls === 'flat') return [[50, 172, 30, RED], [30, 112, 24, ORG], [50, 44, 20, YEL]];
+  if (cls === 'high') return [[50, 172, 26, RED], [50, 44, 26, RED], [66, 110, 14, YEL]];
+  if (cls === 'low') return [[50, 172, 26, ORG], [32, 112, 22, ORG], [50, 44, 18, YEL]];
+  return [[50, 172, 22, YEL], [50, 44, 16, YEL]];
 }
-function buildOfficialReport() {
-  const W2 = 1080, H2 = 1527;
-  const c = document.createElement('canvas'); c.width = W2; c.height = H2;
-  const x = c.getContext('2d');
+function renderFootSvg(el, cls, mirror) {
+  const blobs = footBlobs(cls).map(([bx, by, r, col], i) =>
+    `<radialGradient id="g${el.id}${i}"><stop offset="0" stop-color="${col}"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></radialGradient>
+     <circle cx="${bx}" cy="${by}" r="${r * 1.5}" fill="url(#g${el.id}${i})"/>`).join('');
+  el.innerHTML = `<g transform="${mirror ? 'translate(100,0) scale(-1,1)' : ''}">
+    <path d="${FOOT_PATH}" fill="#EEF4F2" stroke="#B9CCC7" stroke-width="2.5"/>${blobs}</g>`;
+}
+function renderOfficialReport(profile) {
   const walk = scanResults.walk || {};
-  const fr = walk.R ? { ...walk.R, collapse: null } : { ach: null, knee: null, collapse: null };
-  const fl = walk.L ? { ...walk.L, collapse: null } : { ach: null, knee: null, collapse: null };
-  const cR = classify(fr), cL = classify(fl);
+  const cR = classify(profile.R), cL = classify(profile.L);
   const p = answers.person || {};
-  const num2 = new Date();
-  const repNo = `${num2.getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-  const dateStr = `${num2.getDate()}.${num2.getMonth() + 1}.${num2.getFullYear()}`;
-
-  x.fillStyle = BG; x.fillRect(0, 0, W2, H2);
-  // header band
-  x.fillStyle = '#0D3B36'; x.fillRect(0, 0, W2, 120);
-  heb(x, 40, 800, '#4FE3C1'); x.textAlign = 'right';
-  x.fillText('מדרס עד הבית', W2 - 50, 74);
-  heb(x, 22, 400, '#BFD9D4'); x.textAlign = 'left';
-  x.fillText(`דוח ניתוח דריכה ראשוני · מס' ${repNo}`, 50, 52);
-  x.fillText(`הופק ${dateStr} · על בסיס סריקת הליכה ושאלון`, 50, 86);
-  // title
-  heb(x, 52, 800); x.textAlign = 'right';
-  x.fillText('דוח ניתוח דריכה', W2 - 50, 200);
-  heb(x, 26, 400, SUB);
-  const who = [p.name ? `מוכן אישית עבור ${p.name}` : 'מוכן אישית עבורך',
-    p.age ? `גיל ${p.age}` : '', p.shoe ? `נעל מידה ${p.shoe}` : ''].filter(Boolean).join(' · ');
-  x.fillText(who, W2 - 50, 244);
-
-  // ---- right column: foot map card ----
-  const colR = W2 - 50, cardW = 470;
-  x.fillStyle = PAPER; rr(x, colR - cardW, 280, cardW, 470, 18); x.fill();
-  heb(x, 28, 700); x.textAlign = 'center';
-  x.fillText('מפת אזורי העומס שלך', colR - cardW / 2, 330);
-  drawFootMap(x, colR - cardW + 130, 540, 150, 300, cR.cls, false);
-  drawFootMap(x, colR - 130, 540, 150, 300, cL.cls, true);
-  heb(x, 22, 600, SUB);
-  x.fillText('רגל ימין', colR - cardW + 130, 700);
-  x.fillText('רגל שמאל', colR - 130, 700);
-  heb(x, 19, 400, SUB); x.textAlign = 'center';
-  x.fillText('🔴 עומס גבוה   🟠 עומס בינוני   🟡 עומס קל', colR - cardW / 2, 736);
-
-  // ---- classification slider card ----
-  x.fillStyle = PAPER; rr(x, colR - cardW, 770, cardW, 250, 18); x.fill();
-  heb(x, 28, 700); x.textAlign = 'right';
-  x.fillText('סיווג הדריכה שלך', colR - 24, 820);
-  const meanAch = fr.ach != null ? (fr.ach + fl.ach) / 2 : null;
-  const clsName = fr.ach == null ? 'בהשלמת מומחה'
+  const d = new Date();
+  $('orpNo').textContent = `${d.getFullYear()}-${String((d.getMonth() + 1) * 100 + d.getDate()).padStart(4, '0')}`;
+  $('orpDate').textContent = `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
+  $('orpName').textContent = p.name || 'הלקוח';
+  $('orpMeta2').textContent = (p.age ? ` · גיל ${p.age}` : '') + (p.shoe ? ` · נעל מידה ${p.shoe}` : '');
+  renderFootSvg($('footR'), cR.cls, false);
+  renderFootSvg($('footL'), cL.cls, true);
+  const R = profile.R, L = profile.L;
+  const meanAch = R.ach != null ? (R.ach + L.ach) / 2 : null;
+  $('orpCls').textContent = R.ach == null ? 'בהשלמת מומחה'
     : meanAch > 6 ? 'פרונציית-יתר (Overpronation)'
     : meanAch > 3 ? 'פרונציית-יתר מתונה'
-    : (fr.knee + fl.knee) / 2 < -3 ? 'נטייה לסופינציה' : 'דריכה נייטרלית';
-  heb(x, 24, 700, ACC);
-  x.fillText(clsName, colR - 24, 862);
-  // slider
-  const sx = colR - cardW + 40, sw = cardW - 80, sy = 900;
-  const g2 = x.createLinearGradient(sx, 0, sx + sw, 0);
-  g2.addColorStop(0, '#4FA3E3'); g2.addColorStop(0.5, '#79C99E'); g2.addColorStop(1, '#E2574C');
-  x.fillStyle = g2; rr(x, sx, sy, sw, 14, 7); x.fill();
-  const pos = meanAch == null ? 0.5 : Math.min(1, Math.max(0, 0.45 + meanAch / 20));
-  x.fillStyle = INK; x.beginPath(); x.arc(sx + sw * pos, sy + 7, 16, 0, 7); x.fill();
-  x.strokeStyle = PAPER; x.lineWidth = 4; x.stroke();
-  heb(x, 18, 400, SUB);
-  x.textAlign = 'left'; x.fillText('סופינציה', sx, sy + 48);
-  x.textAlign = 'center'; x.fillText('נייטרלי', sx + sw / 2, sy + 48);
-  x.textAlign = 'right'; x.fillText('פרונציית-יתר', sx + sw, sy + 48);
-  heb(x, 20, 400, SUB);
-  const clsLine = fr.ach == null ? 'המומחה שלנו משלים את הניתוח מהצילומים.'
-    : meanAch > 3 ? 'כף הרגל קורסת פנימה בצעד — הגורם השכיח לעומס שעולה לברכיים ולגב.'
-    : 'קו העקב נשמר יציב בצעד — בסיס טוב, נוודא תמיכה בהעמסות.';
-  x.fillText(clsLine, colR - 24, 988);
-
-  // ---- left column: findings card ----
-  const colL = 50;
-  x.fillStyle = PAPER; rr(x, colL, 280, cardW, 470, 18); x.fill();
-  heb(x, 28, 700); x.textAlign = 'right';
-  x.fillText('שלושה ממצאים מהסריקה שלך', colL + cardW - 24, 330);
-  const worse = fr.ach != null && fr.ach >= fl.ach ? 'ימין' : 'שמאל';
+    : (R.knee + L.knee) / 2 < -3 ? 'נטייה לסופינציה' : 'דריכה נייטרלית';
+  // slider: right = supination, left = overpronation
+  const pos = meanAch == null ? 0.5 : Math.min(0.97, Math.max(0.03, 0.45 + meanAch / 20));
+  $('orpDot').style.right = `calc(${(pos * 100).toFixed(1)}% - 11px)`;
+  $('orpClsLine').textContent = R.ach == null
+    ? 'המומחה שלנו משלים את הניתוח מהצילומים ויחזור אליך בוואטסאפ.'
+    : meanAch > 3
+      ? 'כף הרגל קורסת פנימה בכל צעד. זה הגורם השכיח לשרשרת עומסים שעולה לברכיים ולגב התחתון.'
+      : 'קו העקב נשמר יציב לאורך הצעד — בסיס טוב; המדרס יוודא תמיכה גם בהעמסות.';
+  const worse = R.ach != null && R.ach >= L.ach ? 'ימין' : 'שמאל';
   const painKnee = (answers.pain || []).includes(4);
-  const finds = fr.ach == null ? [
+  const finds = R.ach == null ? [
     ['ההליכה נקלטה במלואה', 'הצילומים והנתונים הועברו למומחה להשלמת האבחון.'],
-    ['השאלון נותח', 'הדיווח שלך על הכאבים שוקלל בפרופיל.'],
-    ['השלב הבא מוכן', 'ערכת טביעת רגל ביתית לבניית המדרס.'],
+    ['השאלון נותח', 'הדיווח שלך שוקלל בפרופיל האישי.'],
+    ['השלב הבא מוכן', 'ערכת טביעת רגל ביתית לבניית המדרס האישי.'],
   ] : [
-    [`קו עקב ${worse} נוטה פנימה ~${(worse === 'ימין' ? fr.ach : fl.ach).toFixed(0)}°`,
-      'נמדד ברגעי העמסה מלאה על רגל אחת, לאורך מחזורי ההליכה.'],
-    [Math.abs(fr.ach - fl.ach) > 1.5 ? `א-סימטריה בין הרגליים (${Math.abs(fr.ach - fl.ach).toFixed(1)}°)` : 'דפוס דומה בשתי הרגליים',
-      Math.abs(fr.ach - fl.ach) > 1.5
-        ? (painKnee ? `רגל ${worse} עמוסה יותר — עקבי עם כאב הברך שציינת בשאלון.` : `רגל ${worse} עמוסה יותר — נביא זאת בחשבון במפרט.`)
-        : 'המדרסים יתוכננו בזוג מאוזן.'],
-    [`${walk.cycles || 0} מחזורי הליכה נותחו`, 'המדידה מבוססת על ממוצע רב-צעדי, לא על צעד בודד.'],
+    [`קו עקב ${worse} נוטה פנימה ~${(worse === 'ימין' ? R.ach : L.ach).toFixed(0)}°`,
+      'נמדד ברגעי העמסה מלאה על רגל אחת, לאורך מחזורי ההליכה שלך.'],
+    Math.abs(R.ach - L.ach) > 1.5
+      ? [`עומס לא סימטרי — רגל ${worse} עמוסה יותר`,
+         painKnee ? 'עקבי עם כאב הברך שציינת בשאלון — המפרט יתוקן בהתאם.' : 'המפרט של כל רגל ייבנה בנפרד.']
+      : ['דפוס דומה בשתי הרגליים', 'זוג המדרסים ייבנה מאוזן.'],
+    [`${walk.cycles || 0} מחזורי הליכה נותחו`, 'המדידה מבוססת ממוצע רב-צעדי, לא צעד בודד.'],
   ];
-  let fy = 380;
-  finds.forEach(([t, d], i) => {
-    x.fillStyle = INK; x.beginPath(); x.arc(colL + cardW - 44, fy - 8, 16, 0, 7); x.fill();
-    heb(x, 19, 700, PAPER); x.textAlign = 'center'; x.fillText(String(i + 1), colL + cardW - 44, fy - 1);
-    heb(x, 23, 700); x.textAlign = 'right'; x.fillText(t, colL + cardW - 74, fy);
-    heb(x, 20, 400, SUB);
-    x.fillText(d.slice(0, 46), colL + cardW - 74, fy + 32);
-    if (d.length > 46) x.fillText(d.slice(46), colL + cardW - 74, fy + 60);
-    fy += 118;
-  });
-
-  // ---- load chain card ----
-  x.fillStyle = PAPER; rr(x, colL, 770, cardW, 380, 18); x.fill();
-  heb(x, 28, 700); x.textAlign = 'right';
-  x.fillText('שרשרת העומס: מכף הרגל עד הגב', colL + cardW - 24, 820);
-  const chain = ['כף הרגל קורסת פנימה', 'הברך מפצה ומסתובבת', 'האגן נוטה ומתעייף', 'הגב התחתון סופג את השארית'];
-  let cy2 = 870;
-  chain.forEach((t, i) => {
-    heb(x, 21, 700, '#C0392B'); x.textAlign = 'right';
-    x.fillText(String(i + 1), colL + cardW - 30, cy2);
-    heb(x, 21, 400); x.fillText(t, colL + cardW - 60, cy2);
-    cy2 += 46;
-  });
-  heb(x, 20, 600, ACC);
-  x.fillText('תמיכה נכונה בקשת עוצרת את השרשרת בחוליה הראשונה.', colL + cardW - 24, cy2 + 14);
-
-  // ---- recommendation band ----
-  x.fillStyle = '#0D3B36'; rr(x, 50, 1180, W2 - 100, 130, 16); x.fill();
-  heb(x, 24, 700, '#4FE3C1'); x.textAlign = 'right';
-  x.fillText('ההמלצה: מדרס בהתאמה אישית עם ' + (cR.spec[0] || 'תמיכת קשת מותאמת'), W2 - 80, 1232);
-  heb(x, 21, 400, '#DFF3EE');
-  x.fillText('מעוצב לפי ערכת טביעת הרגל הביתית שתגיע אליך, ומיוצר עד הבית.', W2 - 80, 1272);
-
-  // ---- expert stamp ----
-  x.strokeStyle = ACC; x.lineWidth = 4; rr(x, 70, 1330, 180, 100, 14); x.stroke();
-  heb(x, 26, 800, ACC); x.textAlign = 'center';
-  x.fillText('נבדק ✓', 160, 1380);
-  heb(x, 16, 400, SUB); x.fillText('בקרת מומחה', 160, 1410);
-  heb(x, 20, 600); x.textAlign = 'right';
-  x.fillText('צוות ההתאמה · מדרס עד הבית', W2 - 80, 1370);
-  heb(x, 18, 400, SUB);
-  x.fillText('ניתוח ממצאים: מערכת ההתאמה + בקרת מומחה', W2 - 80, 1400);
-
-  // footer
-  x.fillStyle = '#0D3B36'; x.fillRect(0, H2 - 60, W2, 60);
-  heb(x, 17, 400, '#BFD9D4'); x.textAlign = 'center';
-  x.fillText('ניתוח ראשוני על בסיס סריקת הליכה ושאלון · אינו אבחנה רפואית ואינו תחליף לייעוץ רפואי', W2 / 2, H2 - 24);
-  return c;
-}
-let reportBlobCache = null;
-async function showOfficialReport() {
-  const c = buildOfficialReport();
-  reportBlobCache = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-  $('reportImg').src = URL.createObjectURL(reportBlobCache);
-  $('reportView').hidden = false;
+  $('orpFinds').innerHTML = finds.map(([t, d2]) => `<li><b>${t}</b>${d2}</li>`).join('');
+  $('orpReco').textContent = `מדרס בהתאמה אישית עם ${cR.spec[0] || 'תמיכת קשת מותאמת'} ופיזור עומס עקב.`;
 }
 async function shareOfficial() {
-  if (!reportBlobCache) { const c = buildOfficialReport(); reportBlobCache = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9)); }
-  const file = new File([reportBlobCache], 'foot-report.jpg', { type: 'image/jpeg' });
   try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], text: 'הדוח שלי מניתוח הדריכה הביתי' });
-      return;
+    if (window.html2canvas) {
+      const canvas = await html2canvas($('officialReport'), { scale: 2, backgroundColor: '#F2F5F4', useCORS: true });
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+      const file = new File([blob], 'foot-report.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], text: 'הדוח שלי מניתוח הדריכה הביתי' });
+        return;
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'foot-report.jpg'; a.click();
     }
-  } catch { /* cancelled/unsupported */ }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(reportBlobCache); a.download = 'foot-report.jpg'; a.click();
+  } catch { /* cancelled/unsupported — still open the chat */ }
   window.open(waLink(), '_blank');
 }
-$('reportBtn').onclick = showOfficialReport;
-$('rvClose').onclick = () => { $('reportView').hidden = true; };
-$('rvShare').onclick = shareOfficial;
 
 /* ================= WhatsApp handoff + shareable report ================= */
 const WHATSAPP = '972500000000'; // TODO: replace with the Vizzy business number

@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
-<link rel="stylesheet" href="css/app.css?v=46">
+<link rel="stylesheet" href="css/app.css?v=47">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 46</small></div>
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 47</small></div>
     <div class="progress"><i id="pbar"></i></div>
     <span class="step-label" id="plabel"></span>
   </header>
@@ -124,13 +124,66 @@
       <canvas id="replay" width="300" height="400"></canvas>
       <p class="small" id="replayCaption"></p>
     </div>
-    <div class="card center" id="skelCard" hidden>
-      <strong>מבט השלד — התנועה המלאה שלך</strong>
-      <canvas id="skelReplay" width="300" height="400"></canvas>
-      <p class="small" id="skelCaption"></p>
+    <!-- official branded report, 1:1 with the sample PDF -->
+    <div class="orp" id="officialReport" dir="rtl">
+      <div class="orp-head">
+        <div class="orp-meta">
+          <div>דוח ניתוח דריכה ראשוני · מס' <span id="orpNo"></span></div>
+          <div>הופק <span id="orpDate"></span> · על בסיס סריקת הליכה ושאלון</div>
+        </div>
+        <div class="orp-brand">מדרס עד הבית</div>
+      </div>
+      <div class="orp-body">
+        <h2 class="orp-title">דוח ניתוח דריכה</h2>
+        <p class="orp-who">מוכן אישית עבור <b id="orpName"></b><span id="orpMeta2"></span></p>
+
+        <div class="orp-card">
+          <h3>מפת אזורי העומס שלך</h3>
+          <div class="orp-feet">
+            <figure><svg id="footR" viewBox="0 0 100 220"></svg><figcaption>רגל ימין</figcaption></figure>
+            <figure><svg id="footL" viewBox="0 0 100 220"></svg><figcaption>רגל שמאל</figcaption></figure>
+          </div>
+          <div class="orp-legend">
+            <span><i style="background:#E2574C"></i>עומס גבוה</span>
+            <span><i style="background:#E8A13C"></i>עומס בינוני</span>
+            <span><i style="background:#E7CD6A"></i>עומס קל</span>
+          </div>
+        </div>
+
+        <div class="orp-card">
+          <h3>סיווג הדריכה שלך</h3>
+          <span class="orp-chip" id="orpCls"></span>
+          <div class="orp-slider"><i id="orpDot"></i></div>
+          <div class="orp-sliderlbl"><span>פרונציית-יתר</span><span>נייטרלי</span><span>סופינציה</span></div>
+          <p class="orp-clsline" id="orpClsLine"></p>
+        </div>
+
+        <div class="orp-card">
+          <h3>שלושה ממצאים מהסריקה שלך</h3>
+          <ol class="orp-finds" id="orpFinds"></ol>
+        </div>
+
+        <div class="orp-card">
+          <h3>שרשרת העומס: מכף הרגל עד הגב</h3>
+          <ol class="orp-chain">
+            <li>כף הרגל קורסת פנימה</li>
+            <li>הברך מפצה ומסתובבת</li>
+            <li>האגן נוטה ומתעייף</li>
+            <li>הגב התחתון סופג את השארית</li>
+          </ol>
+          <p class="orp-chainnote">תמיכה נכונה בקשת עוצרת את השרשרת בחוליה הראשונה.</p>
+        </div>
+
+        <div class="orp-reco"><b>ההמלצה:</b> <span id="orpReco"></span> מעוצב לפי ערכת טביעת הרגל הביתית שתגיע אליך, ומגיע עד הבית.</div>
+
+        <div class="orp-sign">
+          <div class="orp-stamp">נבדק ✓<small>בקרת מומחה</small></div>
+          <div><b>צוות ההתאמה · מדרס עד הבית</b><br><small>ניתוח ממצאים: מערכת ההתאמה + בקרת מומחה</small></div>
+        </div>
+      </div>
+      <div class="orp-foot">ניתוח ראשוני על בסיס סריקת הליכה ושאלון · אינו אבחנה רפואית ואינו תחליף לייעוץ רפואי</div>
     </div>
     <div class="explain" id="logicLine"></div>
-    <button class="btn" id="reportBtn">צפה בדוח הרשמי שלך</button>
     <button class="btn" id="shareBtn">שלח את הדוח למומחה בוואטסאפ</button>
     <button class="btn ghost" id="waBtn">המשך שיחה בוואטסאפ בלי הדוח</button>
     <button class="btn ghost" id="dumpBtn">הורד קובץ אבחון (לשליחה למפתח)</button>
@@ -162,14 +215,7 @@
   </section>
 </div>
 
-<div class="reportView" id="reportView" hidden>
-  <img id="reportImg" alt="הדוח שלך">
-  <div class="rvBtns">
-    <button class="btn" id="rvShare">שלח בוואטסאפ</button>
-    <button class="btn ghost" id="rvClose">סגור</button>
-  </div>
-</div>
-
-<script type="module" src="js/app.js?v=46"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+<script type="module" src="js/app.js?v=47"></script>
 </body>
 </html>
