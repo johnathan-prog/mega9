@@ -207,13 +207,14 @@ async function runStage(st) {
     const loop = (ts) => {
       if (abortScan) return resolve();
       const lms = P.detect(video, ts ?? performance.now());
+      const drawLms = smoothForDisplay(lms);
       machine.sensor = sensor;
       updateHeightMeter(machine.state);
       logFrame(st.key, lms, machine.lastRecT);
       if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
         captureSnap(video, lms, machine.lastRecT);
-      P.drawSkeleton(overlay, lms);
-      if (lms) drawLiveAngles(overlay, lms);
+      P.drawSkeleton(overlay, drawLms);
+      if (drawLms) drawLiveAngles(overlay, drawLms);
       if (machine.state === 'FIND' || machine.state === 'SYNC') drawSilhouette(overlay);
       updateDistLight(lms, machine.state);
       machine.frame(lms);
@@ -292,6 +293,22 @@ function renderResults(profile) {
      <ul style="margin:0;padding-right:18px">${[...specs].map(s => `<li>${s}</li>`).join('')}</ul>`;
 }
 
+// Display-only exponential smoothing: the drawn lines sit calmly on the
+// body while the ANALYSIS still consumes the raw landmark stream.
+let smoothState = null;
+function smoothForDisplay(lms) {
+  if (!lms) { smoothState = null; return null; }
+  if (!smoothState) { smoothState = lms.map(p => ({ ...p })); return smoothState; }
+  const a = 0.35;
+  for (let i = 0; i < lms.length; i++) {
+    const s = smoothState[i], p = lms[i];
+    s.x += (p.x - s.x) * a;
+    s.y += (p.y - s.y) * a;
+    s.visibility = p.visibility;
+  }
+  return smoothState;
+}
+
 // the live "technology mirror": heel lines + degree readouts on the body
 function drawLiveAngles(canvas, lms) {
   const x = canvas.getContext('2d');
@@ -362,14 +379,24 @@ function renderEvidence() {
   const card = $('replayCard'), cv = $('replay');
   const walk = scanResults.walk || {};
   const moments = [];
-  const collect = (times, label) => {
+  const toLms = f => f.l.map(a2 => ({ x: a2[0], y: a2[1], visibility: a2[2] }));
+  const collect = times => {
     for (const t of (times || []).slice(0, 3)) {
       const frames = rawLog.filter(f => f.l && f.rt != null && Math.abs(f.rt - t) < 700);
-      if (frames.length > 4) moments.push({ frames, label, snap: nearestSnap(t) });
+      if (frames.length > 4) {
+        // label by the moment's OWN direction: leg scale rising = walking
+        // toward the camera (frontal view), falling = away (posterior)
+        const s0 = P.legScale(toLms(frames[0])) || 0;
+        const s1 = P.legScale(toLms(frames[frames.length - 1])) || 0;
+        const label = s1 >= s0
+          ? 'מבט קדמי — ציר הברך והשוק שלך'
+          : 'מבט אחורי — קו העקב שלך מול קו ישר';
+        moments.push({ frames, label, snap: nearestSnap(t) });
+      }
     }
   };
-  collect(walk.achTimes, 'מבט אחורי — קו העקב שלך מול קו ישר');
-  collect(walk.kneeTimes, 'מבט קדמי — ציר הברך והשוק שלך');
+  collect(walk.achTimes);
+  collect(walk.kneeTimes);
   if (!moments.length) { card.hidden = true; return; }
   card.hidden = false;
   const x = cv.getContext('2d');
