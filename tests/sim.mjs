@@ -223,6 +223,7 @@ const ui = () => ({ instr() {}, tag() {} });
   check('recording completes even without walking', m.done, `state=${m.state}`);
   const r = m.result();
   check('result defers to expert (null angles)', r.R === null, JSON.stringify(r.R));
+  await new Promise(r => setTimeout(r, 80)); // let the queued final line drain
   check('no see-you negativity', !spoken.some(s => s.includes('לא רואה')), JSON.stringify(spoken.slice(0,3)));
   check('honest retry then expert handoff', spoken.some(s => s.includes('ננסה עוד פעם')) &&
     spoken.some(s => s.includes('המומחה')), JSON.stringify(spoken.slice(-3)));
