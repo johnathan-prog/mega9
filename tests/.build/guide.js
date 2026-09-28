@@ -143,12 +143,6 @@ export class WalkScan {
     }
     return 1;
   }
-  restartRecording() {
-    // second chance after a low-quality capture: keep the camera rolling
-    this.rec = []; this.extended = false; this.praisedHalf = false;
-    this.state = 'RECORD'; this.t0 = Date.now(); this.stateSince = this.t0;
-    say('מקליט שוב חצי דקה — לך הלוך ושוב בקצב טבעי', { force: true });
-  }
   frame(lms) {
     const now = Date.now();
     switch (this.state) {
@@ -211,17 +205,27 @@ export class WalkScan {
           this.praisedHalf = true;
           say('מעולה, ממשיך ככה', { force: true });
         }
-        this.ui.instr(`מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))}`);
+        if (el > 0) this.ui.instr(`מקליט… ${Math.max(0, Math.ceil((total - el) / 1000))}`);
         if (el >= total) {
           const a = analyzeGait(this.rec);
-          if (a.cycles < 6 && !this.extended) {
+          // ONE authority decides quality, voice and screen together
+          if (a.cycles < 6 && !this.extended && !this.retriedOnce) {
             this.extended = true; this.praisedHalf = false;
             say('עוד כמה שניות, המשך ללכת הלוך ושוב', { force: true });
+          } else if (a.cycles < 3 && !this.retriedOnce) {
+            this.retriedOnce = true;
+            this.rec = []; this.extended = true; this.praisedHalf = false;
+            this.t0 = now + 3500; // grace while the retry line plays
+            this.ui.instr('לא קלטתי מספיק צעדים — מנסים שוב');
+            say('עצור', { urgent: true });
+            say('לא קלטתי מספיק צעדים. ננסה עוד פעם — פשוט לך הלוך ושוב בקצב טבעי', { force: true });
           } else {
+            const ok = a.cycles >= 3;
             say('עצור', { urgent: true });
             this.state = 'DONE';
-            this.ui.instr('מעולה! ההקלטה הושלמה');
-            say('מעולה! ההקלטה הושלמה, מכינים את הדוח שלך', { force: true });
+            this.ui.instr(ok ? 'מעולה! ההקלטה הושלמה' : 'ההקלטה הושלמה');
+            say(ok ? 'מעולה! ההקלטה הושלמה, מכינים את הדוח שלך'
+                   : 'סיימנו. המומחה שלנו ישלים את הניתוח מהצילומים', { force: true });
           }
         }
         break;

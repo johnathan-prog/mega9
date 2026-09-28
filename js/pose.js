@@ -93,5 +93,5 @@ export function drawSkeleton(canvas, lms, { clear = true } = {}) {
 }
 
 
-export * from './posemath.js?v=43';
-import { LM } from './posemath.js?v=43';
+export * from './posemath.js?v=44';
+import { LM } from './posemath.js?v=44';

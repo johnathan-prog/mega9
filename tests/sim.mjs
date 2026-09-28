@@ -219,11 +219,13 @@ const ui = () => ({ instr() {}, tag() {} });
   console.log('T6 no-walk handoff');
   const m = new G.WalkScan({ ui: ui() });
   spoken.length = 0;
-  for (let i = 0; i < 1800 && !m.done; i++) await tick(m, person({ dist: 2 })); // static
+  for (let i = 0; i < 2800 && !m.done; i++) await tick(m, person({ dist: 2 })); // static
   check('recording completes even without walking', m.done, `state=${m.state}`);
   const r = m.result();
   check('result defers to expert (null angles)', r.R === null, JSON.stringify(r.R));
-  check('no negative lines', !spoken.some(s => s.includes('לא רואה')), JSON.stringify(spoken.slice(0,3)));
+  check('no see-you negativity', !spoken.some(s => s.includes('לא רואה')), JSON.stringify(spoken.slice(0,3)));
+  check('honest retry then expert handoff', spoken.some(s => s.includes('ננסה עוד פעם')) &&
+    spoken.some(s => s.includes('המומחה')), JSON.stringify(spoken.slice(-3)));
   check('pending classification', E.classify({ ach: null, knee: null, collapse: null }).cls === 'pending');
 }
 

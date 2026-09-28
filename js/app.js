@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=43';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=43';
-import { classify, LOGIC_LINE } from './engine.js?v=43';
+import * as P from './pose.js?v=44';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=44';
+import { classify, LOGIC_LINE } from './engine.js?v=44';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', analyzing: 'ניתוח', results: 'הדוח שלך' };
@@ -200,7 +200,6 @@ async function runStage(st) {
   const machine = st.key === 'archR' ? new ArchTest({ side: 'R', ui })
     : st.key === 'archL' ? new ArchTest({ side: 'L', ui })
     : new WalkScan({ ui, place: true });
-  let retried = false;
   ui.tag(st.title);
   $('angleHud').hidden = !(machine instanceof WalkScan);
   $('scanHint').textContent = 'עקוב אחרי ההנחיות על המסך ובקול';
@@ -238,16 +237,7 @@ async function runStage(st) {
         $('hAch').textContent = ((Math.abs(P.achillesDeviation(lms, 'R')) + Math.abs(P.achillesDeviation(lms, 'L'))) / 2).toFixed(1) + '°';
         $('hKnee').textContent = ((P.kneeAxis(lms, 'R') + P.kneeAxis(lms, 'L')) / 2).toFixed(1) + '°';
       }
-      if (machine.done) {
-        if (retried === 'pending') { requestAnimationFrame(loop); return; }
-        const r = machine.result ? machine.result() : null;
-        if (r && r.R === null && !retried && machine.restartRecording) {
-          retried = 'pending';
-          $('bigInstr').textContent = 'לא קלטתי מספיק צעדים — מנסים שוב';
-          say('לא קלטתי מספיק צעדים. בוא ננסה עוד פעם — לך הלוך ושוב בקצב טבעי', { force: true });
-          setTimeout(() => { retried = true; machine.restartRecording(); }, 3500);
-        } else return resolve();
-      }
+      if (machine.done) return resolve();
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
