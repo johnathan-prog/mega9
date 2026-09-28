@@ -3,7 +3,7 @@
 // decide what to tell the user next. The readiness gate everywhere is
 // lowerBodyVisible: floor-to-waist in frame — angles are tracked from the
 // moment hips-to-heels are visible, not from a distance estimate.
-import * as P from './posemath.js?v=37';
+import * as P from './posemath.js?v=38';
 
 let hebVoice = null;
 function pickVoice() {
@@ -236,9 +236,10 @@ export class WalkScan {
   result() {
     const a = analyzeGait(this.rec);
     if (a.cycles < 3) return { R: null, L: null, frames: this.rec.length, cycles: a.cycles,
-      achTimes: [], kneeTimes: [] };
+      achTimes: [], kneeTimes: [], achMoments: [], kneeMoments: [] };
     return { R: a.R, L: a.L, frames: this.rec.length, cycles: a.cycles,
-      achTimes: a.achTimes || [], kneeTimes: a.kneeTimes || [] };
+      achTimes: a.achTimes || [], kneeTimes: a.kneeTimes || [],
+      achMoments: a.achMoments || [], kneeMoments: a.kneeMoments || [] };
   }
 }
 
@@ -294,12 +295,17 @@ function analyzeGait(rec) {
     return med(tail);
   };
   const pick = (idx, k) => idx.map(i => rec[i][k]);
+  // each replay moment carries the direction MEASURED at that instant,
+  // so captions can never contradict the footage (fallbacks included)
+  const moment = i => ({ t: rec[i].t, dir: away[i] ? 'back' : 'front' });
   return {
     R: { ach: +worstThird(pick(achIdx, 'aR')).toFixed(1), knee: +med(pick(kneeIdx, 'kR')).toFixed(1) },
     L: { ach: +worstThird(pick(achIdx, 'aL')).toFixed(1), knee: +med(pick(kneeIdx, 'kL')).toFixed(1) },
     cycles,
     achTimes: achIdx.map(i => rec[i].t),
     kneeTimes: kneeIdx.map(i => rec[i].t),
+    achMoments: achIdx.map(moment),
+    kneeMoments: kneeIdx.map(moment),
   };
 }
 

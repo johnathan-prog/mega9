@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=37';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=37';
-import { classify, LOGIC_LINE } from './engine.js?v=37';
+import * as P from './pose.js?v=38';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=38';
+import { classify, LOGIC_LINE } from './engine.js?v=38';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -295,13 +295,22 @@ function renderResults(profile) {
 
 // Display-only exponential smoothing: the drawn lines sit calmly on the
 // body while the ANALYSIS still consumes the raw landmark stream.
-let smoothState = null;
+let smoothState = null, smoothSeenAt = 0;
 function smoothForDisplay(lms) {
-  if (!lms) { smoothState = null; return null; }
+  const now = performance.now();
+  if (!lms) {
+    // hold the last pose through momentary dropouts instead of resetting —
+    // resets are exactly what read as random jumps
+    if (smoothState && now - smoothSeenAt < 400) return smoothState;
+    smoothState = null; return null;
+  }
+  smoothSeenAt = now;
   if (!smoothState) { smoothState = lms.map(p => ({ ...p })); return smoothState; }
-  const a = 0.35;
   for (let i = 0; i < lms.length; i++) {
     const s = smoothState[i], p = lms[i];
+    // adaptive: heavy damping at rest, responsive under real movement
+    const d = Math.hypot(p.x - s.x, p.y - s.y);
+    const a = Math.min(0.6, 0.08 + d * 8);
     s.x += (p.x - s.x) * a;
     s.y += (p.y - s.y) * a;
     s.visibility = p.visibility;
@@ -379,24 +388,19 @@ function renderEvidence() {
   const card = $('replayCard'), cv = $('replay');
   const walk = scanResults.walk || {};
   const moments = [];
-  const toLms = f => f.l.map(a2 => ({ x: a2[0], y: a2[1], visibility: a2[2] }));
-  const collect = times => {
-    for (const t of (times || []).slice(0, 3)) {
-      const frames = rawLog.filter(f => f.l && f.rt != null && Math.abs(f.rt - t) < 700);
+  const collect = ms => {
+    for (const m0 of (ms || []).slice(0, 3)) {
+      const frames = rawLog.filter(f => f.l && f.rt != null && Math.abs(f.rt - m0.t) < 500);
       if (frames.length > 4) {
-        // label by the moment's OWN direction: leg scale rising = walking
-        // toward the camera (frontal view), falling = away (posterior)
-        const s0 = P.legScale(toLms(frames[0])) || 0;
-        const s1 = P.legScale(toLms(frames[frames.length - 1])) || 0;
-        const label = s1 >= s0
-          ? 'מבט קדמי — ציר הברך והשוק שלך'
-          : 'מבט אחורי — קו העקב שלך מול קו ישר';
-        moments.push({ frames, label, snap: nearestSnap(t) });
+        const label = m0.dir === 'back'
+          ? 'מבט אחורי — קו העקב שלך'
+          : 'מבט קדמי — ציר הברך והשוק שלך';
+        moments.push({ frames, label, snap: nearestSnap(m0.t) });
       }
     }
   };
-  collect(walk.achTimes);
-  collect(walk.kneeTimes);
+  collect(walk.achMoments);
+  collect(walk.kneeMoments);
   if (!moments.length) { card.hidden = true; return; }
   card.hidden = false;
   const x = cv.getContext('2d');
@@ -420,19 +424,29 @@ function renderEvidence() {
       const [ax, ay] = pt(a), [bx, by] = pt(b);
       x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
     }
+    let maxDev = 0;
     for (const side of ['R', 'L']) {
       const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
       const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
       const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
-      x.setLineDash([6, 6]); x.strokeStyle = 'rgba(255,255,255,.65)'; x.lineWidth = 2;
-      x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx, hy - Math.hypot(kx - hx, ky - hy)); x.stroke();
+      const len = Math.hypot(kx - hx, ky - hy);
+      // reference line with a dark halo so it reads on any background
+      x.setLineDash([6, 6]);
+      x.strokeStyle = 'rgba(0,0,0,.7)'; x.lineWidth = 5;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx, hy - len); x.stroke();
+      x.strokeStyle = '#FFFFFF'; x.lineWidth = 2.5;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx, hy - len); x.stroke();
       x.setLineDash([]);
       x.strokeStyle = '#FFD166'; x.lineWidth = 4;
       x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
+      const dev = Math.abs(P.achillesDeviation(lms, side));
+      maxDev = Math.max(maxDev, dev);
       x.font = '700 20px Assistant, sans-serif'; x.fillStyle = '#FFD166';
-      x.fillText(Math.abs(P.achillesDeviation(lms, side)).toFixed(0) + '°', hx + 8, hy - 8);
+      x.fillText(dev.toFixed(0) + '°', hx + 8, hy - 8);
     }
-    $('replayCaption').textContent = m.label + ' · הקו המקווקו הלבן הוא קו ישר תקין';
+    $('replayCaption').textContent = m.label + (maxDev < 2.5
+      ? ' · הקווים חופפים — דריכה ישרה'
+      : ' · צהוב: קו העקב שלך · לבן מקווקו: היעד הישר');
     fi++;
     if (fi >= m.frames.length) { fi = 0; mi = (mi + 1) % moments.length; }
   }, 140); // slow motion
