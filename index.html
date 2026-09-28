@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
-<link rel="stylesheet" href="css/app.css?v=42">
+<link rel="stylesheet" href="css/app.css?v=43">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 42</small></div>
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 43</small></div>
     <div class="progress"><i id="pbar"></i></div>
     <span class="step-label" id="plabel"></span>
   </header>
@@ -91,6 +91,15 @@
     <button class="btn" id="analyzeBtn">חשב אבחון</button>
   </section>
 
+  <!-- ANALYZING -->
+  <section class="screen" id="s-analyzing">
+    <div class="card center">
+      <h2>מנתח את ההליכה שלך…</h2>
+      <ul class="ana" id="anaLines"></ul>
+      <div class="gauge"><i id="anaGauge"></i></div>
+    </div>
+  </section>
+
   <!-- RESULTS -->
   <section class="screen" id="s-results">
     <h2>תוצאות האבחון שלך</h2>
@@ -138,6 +147,6 @@
   </section>
 </div>
 
-<script type="module" src="js/app.js?v=42"></script>
+<script type="module" src="js/app.js?v=43"></script>
 </body>
 </html>

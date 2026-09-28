@@ -1,11 +1,11 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=42';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=42';
-import { classify, LOGIC_LINE } from './engine.js?v=42';
+import * as P from './pose.js?v=43';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=43';
+import { classify, LOGIC_LINE } from './engine.js?v=43';
 
 const $ = id => document.getElementById(id);
-const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
-const ORDER = ['intro', 'quiz', 'setup', 'scan', 'results'];
+const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', analyzing: 'ניתוח', results: 'הדוח שלך' };
+const ORDER = ['intro', 'quiz', 'setup', 'scan', 'analyzing', 'results'];
 let cur = 'intro';
 
 function go(name) {
@@ -263,8 +263,7 @@ async function runStage(st) {
     R: walk.R ? { ...walk.R, collapse: null } : { ach: null, knee: null, collapse: null },
     L: walk.L ? { ...walk.L, collapse: null } : { ach: null, knee: null, collapse: null },
   };
-  renderResults(profile);
-  go('results');
+  playAnalyzing(walk, () => { renderResults(profile); go('results'); });
 }
 
 /* ================= results ================= */
@@ -290,8 +289,10 @@ function renderResults(profile) {
            סטיית גיד אכילס: ${f.ach}° · ציר ברך: ${f.knee}°<br>${c.why}</details>`;
     box.appendChild(el);
   });
+  [...box.children].forEach((el, i) => { el.style.animationDelay = (i * 0.25) + 's'; });
   $('logicLine').textContent = LOGIC_LINE;
   renderEvidence();
+  animateGauges();
   $('dumpBtn').onclick = () => {
     const blob = new Blob([JSON.stringify({ ts: new Date().toISOString(), answers, scanResults, rawLog })],
       { type: 'application/json' });
@@ -687,6 +688,54 @@ function renderSkeletonReplay() {
     $('skelCaption').textContent = 'כך המערכת רואה את התנועה שלך — הקו הצהוב הוא קו העקב';
     fi = (fi + 1) % frames.length;
   }, 60);
+}
+
+/* ---- report dramatization: real-number analysis reveal ---- */
+function playAnalyzing(walk, done) {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lines = [
+    `מנתח ${rawLog.filter(f => f.l).length} פריימים של תנועה`,
+    `זוהו ${walk.cycles || 0} מחזורי הליכה`,
+    walk.R ? `נמדדו זוויות עקב: ימין ${walk.R.ach}° · שמאל ${walk.L.ach}°` : 'מעביר את הצילומים לבחינת המומחה',
+    'מרכיב את הדוח האישי שלך…',
+  ];
+  const ul = $('anaLines');
+  ul.innerHTML = lines.map(l => `<li>${l}</li>`).join('');
+  go('analyzing');
+  if (reduced) { done(); return; }
+  const items = [...ul.children];
+  items.forEach((li, i) => setTimeout(() => {
+    li.classList.add('on');
+    beep(900 + i * 120, 0.05, 0.1);
+    $('anaGauge').style.width = ((i + 1) / items.length * 100) + '%';
+  }, 500 + i * 650));
+  setTimeout(done, 500 + items.length * 650 + 500);
+}
+
+// count the gauge numbers up and slide the markers into place
+function animateGauges() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('#results .gaugebox').forEach((box, bi) => {
+    const b = box.querySelector('.glabel b');
+    const u = box.querySelector('.gtrack u');
+    if (!b || !u) return;
+    const finalText = b.textContent;
+    const target = parseFloat(finalText) || 0;
+    const finalRight = u.style.right;
+    b.textContent = '0°';
+    u.style.right = 'calc(0% - 7px)';
+    setTimeout(() => {
+      u.style.right = finalRight; // CSS transition slides the marker
+      const t0 = performance.now();
+      const tick = now => {
+        const p = Math.min(1, (now - t0) / 900);
+        b.textContent = (target * (1 - Math.pow(1 - p, 3))).toFixed(1) + '°';
+        if (p < 1) requestAnimationFrame(tick);
+        else { b.textContent = finalText; beep(620, 0.1, 0.1, 940); }
+      };
+      requestAnimationFrame(tick);
+    }, 600 + bi * 250);
+  });
 }
 
 /* ================= WhatsApp handoff + shareable report ================= */

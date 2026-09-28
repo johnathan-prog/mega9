@@ -95,3 +95,18 @@ details.small summary{cursor:pointer;color:var(--accent);font-weight:600}
 .small{font-size:13px;color:var(--sub)}
 .paygrid{display:flex;flex-direction:column;gap:10px}
 .okball{width:74px;height:74px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:36px;margin:10px auto}
+
+/* ---- report dramatization ---- */
+.ana{list-style:none;padding:0;margin:14px 0;text-align:right;min-height:120px}
+.ana li{opacity:0;transform:translateY(6px);transition:all .35s;font-size:15px;padding:4px 0;color:var(--sub)}
+.ana li.on{opacity:1;transform:none;color:var(--ink)}
+.ana li::before{content:'✓ ';color:var(--accent);font-weight:700}
+@media (prefers-reduced-motion: no-preference){
+  .res-foot{opacity:0;transform:translateY(14px);animation:cardIn .5s forwards}
+  .res-foot .pill{transform:scale(1.6);opacity:0;animation:stampIn .35s .45s forwards}
+  #replayCard,#skelCard{opacity:0;animation:fadeIn .6s .9s forwards}
+  .gtrack u{transition:right .9s cubic-bezier(.2,.8,.3,1)}
+}
+@keyframes cardIn{to{opacity:1;transform:none}}
+@keyframes stampIn{to{transform:scale(1);opacity:1}}
+@keyframes fadeIn{to{opacity:1}}
