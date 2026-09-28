@@ -633,6 +633,59 @@ function gauge(label, val, min, max, zones, loLabel, hiLabel) {
     <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
 }
 
+/* ---- report dramatization: real-number analysis reveal ---- */
+function playAnalyzing(walk, done) {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lines = [
+    `מנתח ${rawLog.filter(f => f.l).length} פריימים של תנועה`,
+    `זוהו ${walk.cycles || 0} מחזורי הליכה`,
+    walk.R ? `נמדדו זוויות עקב: ימין ${walk.R.ach}° · שמאל ${walk.L.ach}°` : 'מעביר את הצילומים לבחינת המומחה',
+    'מרכיב את הדוח האישי שלך…',
+  ];
+  const ul = $('anaLines');
+  ul.innerHTML = lines.map(l => `<li>${l}</li>`).join('');
+  go('analyzing');
+  if (reduced) {
+    [...ul.children].forEach(li => li.classList.add('on'));
+    $('anaGauge').style.width = '100%';
+    setTimeout(done, 1400);
+    return;
+  }
+  const items = [...ul.children];
+  items.forEach((li, i) => setTimeout(() => {
+    li.classList.add('on');
+    playTick();
+    $('anaGauge').style.width = ((i + 1) / items.length * 100) + '%';
+  }, 500 + i * 650));
+  setTimeout(done, 500 + items.length * 650 + 500);
+}
+
+// count the gauge numbers up and slide the markers into place
+function animateGauges() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('#results .gaugebox').forEach((box, bi) => {
+    const b = box.querySelector('.glabel b');
+    const u = box.querySelector('.gtrack u');
+    if (!b || !u) return;
+    const finalText = b.textContent;
+    const target = parseFloat(finalText) || 0;
+    const finalRight = u.style.right;
+    b.textContent = '0°';
+    u.style.right = 'calc(0% - 7px)';
+    setTimeout(() => {
+      u.style.right = finalRight;
+      const t0 = performance.now();
+      const tick = now => {
+        const p = Math.min(1, (now - t0) / 900);
+        b.textContent = (target * (1 - Math.pow(1 - p, 3))).toFixed(1) + '°';
+        if (p < 1) requestAnimationFrame(tick);
+        else { b.textContent = finalText; playLock(); }
+      };
+      requestAnimationFrame(tick);
+    }, 600 + bi * 250);
+  });
+}
+
 $('detailsNext').onclick = () => {
   answers.person = {
     name: ($('pName').value || '').trim(),
