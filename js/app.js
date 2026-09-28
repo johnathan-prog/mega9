@@ -633,6 +633,14 @@ function gauge(label, val, min, max, zones, loLabel, hiLabel) {
     <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
 }
 
+$('detailsNext').onclick = () => {
+  answers.person = {
+    name: ($('pName').value || '').trim(),
+    age: $('pAge').value, shoe: $('pShoe').value,
+  };
+  prepStage(0);
+};
+
 /* ================= official branded report (HTML → image) ================= */
 const FOOT_PATH = 'M50,6 C74,6 82,32 80,62 C79,86 85,100 85,122 C85,162 74,202 50,208 C26,202 15,162 15,122 C15,100 21,86 20,62 C18,32 26,6 50,6 Z';
 function footBlobs(cls) {
