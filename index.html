@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
-<link rel="stylesheet" href="css/app.css?v=45">
+<link rel="stylesheet" href="css/app.css?v=46">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 45</small></div>
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 46</small></div>
     <div class="progress"><i id="pbar"></i></div>
     <span class="step-label" id="plabel"></span>
   </header>
@@ -33,6 +33,20 @@
       <p class="sub" id="qsub"></p>
       <div class="choices" id="qchoices"></div>
       <button class="btn" id="qnext" hidden>המשך</button>
+    </div>
+  </section>
+
+  <!-- PERSONAL DETAILS -->
+  <section class="screen" id="s-details">
+    <div class="card">
+      <h2>עוד רגע מתחילים</h2>
+      <p class="sub">כמה פרטים כדי שהדוח יהיה אישי באמת.</p>
+      <label class="f">שם פרטי<input class="t" id="pName" autocomplete="given-name" placeholder="למשל: יוסי"></label>
+      <div class="rowgrid">
+        <label class="f">גיל<input class="t" id="pAge" type="number" inputmode="numeric" placeholder="42"></label>
+        <label class="f">מידת נעל<input class="t" id="pShoe" type="number" inputmode="numeric" placeholder="44"></label>
+      </div>
+      <button class="btn" id="detailsNext" style="margin-top:12px">ממשיכים לסריקה</button>
     </div>
   </section>
 
@@ -116,6 +130,7 @@
       <p class="small" id="skelCaption"></p>
     </div>
     <div class="explain" id="logicLine"></div>
+    <button class="btn" id="reportBtn">צפה בדוח הרשמי שלך</button>
     <button class="btn" id="shareBtn">שלח את הדוח למומחה בוואטסאפ</button>
     <button class="btn ghost" id="waBtn">המשך שיחה בוואטסאפ בלי הדוח</button>
     <button class="btn ghost" id="dumpBtn">הורד קובץ אבחון (לשליחה למפתח)</button>
@@ -147,6 +162,14 @@
   </section>
 </div>
 
-<script type="module" src="js/app.js?v=45"></script>
+<div class="reportView" id="reportView" hidden>
+  <img id="reportImg" alt="הדוח שלך">
+  <div class="rvBtns">
+    <button class="btn" id="rvShare">שלח בוואטסאפ</button>
+    <button class="btn ghost" id="rvClose">סגור</button>
+  </div>
+</div>
+
+<script type="module" src="js/app.js?v=46"></script>
 </body>
 </html>
