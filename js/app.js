@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=49';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=49';
-import { classify, LOGIC_LINE } from './engine.js?v=49';
+import * as P from './pose.js?v=50';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=50';
+import { classify, LOGIC_LINE } from './engine.js?v=50';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', details: 'פרטים', setup: 'הכנה', scan: 'סריקה', analyzing: 'ניתוח', results: 'הדוח שלך' };
@@ -207,6 +207,7 @@ async function runStage(st) {
   await new Promise(resolve => {
     const loop = (ts) => {
       if (abortScan) return resolve();
+      try {
       const now2 = ts ?? performance.now();
       const lms = P.detect(video, now2);
       const drawLms = smoothForDisplay(lms);
@@ -238,6 +239,7 @@ async function runStage(st) {
         $('hKnee').textContent = ((P.kneeAxis(lms, 'R') + P.kneeAxis(lms, 'L')) / 2).toFixed(1) + '°';
       }
       if (machine.done) return resolve();
+      } catch (err) { showErr('frame: ' + err.message); }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -892,6 +894,20 @@ $('payBtn') && ($('payBtn').onclick = () => {
   };
   console.log('ORDER PAYLOAD', order);
 });
+
+/* ---- visible error trap: any runtime error becomes a readable toast ---- */
+function showErr(msg) {
+  let t = document.getElementById('errToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'errToast';
+    t.style.cssText = 'position:fixed;bottom:8px;left:8px;right:8px;z-index:99;background:#B3261E;color:#fff;font:600 12px Assistant;padding:8px 10px;border-radius:8px;direction:ltr;word-break:break-all';
+    document.body.appendChild(t);
+  }
+  t.textContent = 'v50 · ' + String(msg).slice(0, 160);
+}
+window.addEventListener('error', e => showErr(e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno));
+window.addEventListener('unhandledrejection', e => showErr('promise: ' + (e.reason && e.reason.message || e.reason)));
 
 /* ================= boot ================= */
 (function boot() {

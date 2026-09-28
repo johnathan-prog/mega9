@@ -34,6 +34,7 @@ const mkEl = () => ({
   onclick: null, appendChild() {},
 });
 globalThis.window = globalThis;
+globalThis.addEventListener = globalThis.addEventListener || (() => {});
 globalThis.document = {
   getElementById: id => { if (!els.has(id)) els.set(id, mkEl()); return els.get(id); },
   querySelectorAll: () => [],
