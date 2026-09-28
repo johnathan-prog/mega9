@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=40';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=40';
-import { classify, LOGIC_LINE } from './engine.js?v=40';
+import * as P from './pose.js?v=41';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=41';
+import { classify, LOGIC_LINE } from './engine.js?v=41';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -168,6 +168,7 @@ async function askMotionPermission() {
 
 $('setupStart').onclick = async () => {
   primeTTS(); // mobile TTS unlocks only from a user gesture
+  initAudio(); // scanner sounds unlock on the same gesture
   await askMotionPermission();
   startSensors();
   runStage(STAGES[stageIdx]);
@@ -213,6 +214,7 @@ async function runStage(st) {
       machine.sensor = sensor;
       updateHeightMeter(machine.state);
       logFrame(st.key, lms, machine.lastRecT);
+      if (lms && machine.state === 'RECORD') feedStepPulse(lms);
       if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
         captureSnap(video, lms, machine.lastRecT);
       // layered rendering: aura always (its data is per-pixel and cannot
@@ -306,49 +308,69 @@ function renderResults(profile) {
 }
 
 /* ---- layer 1: body aura + scanline (per-pixel, jitter-free) ---- */
-const auraState = { maskC: null, ringC: null, lastSegAt: 0, frame: 0 };
+// Temporal blending of consecutive masks gives a silky, flowing contour;
+// buffers are allocated once and reused (no per-frame GC churn); the
+// glow "breathes", and a step pulse flashes the aura on every footstrike.
+const auraState = { fresh: null, blendA: null, blendB: null, ring: null,
+  img: null, haveMask: false, frame: 0 };
+let stepFlash = 0;
+function ensureCanvas(key, w, h) {
+  let c = auraState[key];
+  if (!c) { c = document.createElement('canvas'); auraState[key] = c; }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
 function drawAura(overlay, video, ts) {
   auraState.frame++;
-  if (auraState.frame % 2 === 0 || performance.now() - auraState.lastSegAt > 120) {
+  if (auraState.frame % 2 === 0) {
     const seg = P.segment(video, ts);
     if (seg) {
-      auraState.lastSegAt = performance.now();
-      if (!auraState.maskC) {
-        auraState.maskC = document.createElement('canvas');
-        auraState.ringC = document.createElement('canvas');
-      }
-      const mc = auraState.maskC;
-      mc.width = seg.w; mc.height = seg.h;
-      const mx = mc.getContext('2d');
-      const img = mx.createImageData(seg.w, seg.h);
+      const fc = ensureCanvas('fresh', seg.w, seg.h);
+      const fx = fc.getContext('2d');
+      if (!auraState.img || auraState.img.width !== seg.w || auraState.img.height !== seg.h)
+        auraState.img = fx.createImageData(seg.w, seg.h);
+      const px = auraState.img.data;
       for (let i = 0; i < seg.data.length; i++) {
-        // selfie segmenter: category 0 = person
         const on = seg.data[i] === 0 ? 255 : 0;
-        img.data[i * 4] = 79; img.data[i * 4 + 1] = 227; img.data[i * 4 + 2] = 193;
-        img.data[i * 4 + 3] = on;
+        const j = i * 4;
+        px[j] = 79; px[j + 1] = 227; px[j + 2] = 193; px[j + 3] = on;
       }
-      mx.putImageData(img, 0, 0);
+      fx.putImageData(auraState.img, 0, 0);
+      // temporal blend: 35% previous + 65% fresh → flowing silky edge
+      const a = ensureCanvas('blendA', seg.w, seg.h);
+      const b = ensureCanvas('blendB', seg.w, seg.h);
+      const bx = b.getContext('2d');
+      bx.clearRect(0, 0, b.width, b.height);
+      bx.globalAlpha = 0.35; bx.drawImage(a, 0, 0);
+      bx.globalAlpha = 0.75; bx.drawImage(fc, 0, 0);
+      bx.globalAlpha = 1;
+      auraState.blendA = b; auraState.blendB = a; // swap
+      auraState.haveMask = true;
     }
   }
-  const mc = auraState.maskC;
-  if (!mc || !mc.width) return;
-  const rc = auraState.ringC;
-  rc.width = overlay.width; rc.height = overlay.height;
+  if (!auraState.haveMask) return;
+  const mc = auraState.blendA;
+  const rc = ensureCanvas('ring', overlay.width, overlay.height);
   const rx = rc.getContext('2d');
-  // outer glow ring: blurred mask minus the sharp mask
+  rx.clearRect(0, 0, rc.width, rc.height);
+  // outer glow ring: blurred silhouette minus a softly-edged silhouette
   rx.filter = 'blur(9px)';
   rx.drawImage(mc, 0, 0, rc.width, rc.height);
-  rx.filter = 'none';
+  rx.filter = 'blur(1.5px)';
   rx.globalCompositeOperation = 'destination-out';
   rx.drawImage(mc, 0, 0, rc.width, rc.height);
+  rx.filter = 'none';
   rx.globalCompositeOperation = 'source-over';
   const octx = overlay.getContext('2d');
   octx.save();
-  octx.globalAlpha = 0.9;
+  // breathing glow + footstrike flash
+  octx.globalAlpha = Math.min(1, 0.7 + 0.18 * Math.sin(performance.now() / 900) + stepFlash * 0.6);
   octx.drawImage(rc, 0, 0);
-  // scanline sweeping the body only
+  // scanline clipped to the body
   rx.clearRect(0, 0, rc.width, rc.height);
+  rx.filter = 'blur(1.5px)';
   rx.drawImage(mc, 0, 0, rc.width, rc.height);
+  rx.filter = 'none';
   rx.globalCompositeOperation = 'source-in';
   const y = (performance.now() / 1800 % 1) * rc.height;
   const grad = rx.createLinearGradient(0, y - 26, 0, y + 26);
@@ -358,8 +380,49 @@ function drawAura(overlay, video, ts) {
   rx.fillStyle = grad;
   rx.fillRect(0, y - 26, rc.width, 52);
   rx.globalCompositeOperation = 'source-over';
+  octx.globalAlpha = 1;
   octx.drawImage(rc, 0, 0);
   octx.restore();
+  stepFlash *= 0.85;
+}
+
+/* ---- live footstrike pulse + scanner sound ---- */
+let audioCtx = null;
+function initAudio() {
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); }
+  catch { audioCtx = null; }
+}
+function beep(freq, dur, gainV, freq2) {
+  if (!audioCtx) return;
+  try {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = freq;
+    if (freq2) o.frequency.exponentialRampToValueAtTime(freq2, audioCtx.currentTime + dur);
+    g.gain.setValueAtTime(gainV, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+  } catch { /* audio best-effort */ }
+}
+const pulse = { smooth: null, dir: 0, lastAt: 0 };
+function feedStepPulse(lms) {
+  if (!lms) return;
+  const scl = P.legScale(lms);
+  if (!scl) return;
+  const la = lms[P.LM.L_ANKLE], ra = lms[P.LM.R_ANKLE];
+  const sep = Math.hypot(la.x - ra.x, la.y - ra.y) / scl;
+  if (pulse.smooth == null) { pulse.smooth = sep; return; }
+  const prev = pulse.smooth;
+  pulse.smooth = prev * 0.55 + sep * 0.45;
+  if (pulse.smooth > prev + 0.006) pulse.dir = 1;
+  else if (pulse.smooth < prev - 0.006 && pulse.dir === 1) {
+    if (prev > 0.18 && Date.now() - pulse.lastAt > 350) {
+      pulse.lastAt = Date.now();
+      stepFlash = 1;                 // aura flash on the footstrike
+      beep(1250, 0.05, 0.06);       // scanner tick
+    }
+    pulse.dir = -1;
+  }
 }
 
 /* ---- layer 2 gate: lines earn their place with sustained confidence ---- */
@@ -373,6 +436,7 @@ function lineAlpha(lms) {
   if (conf > 0.55) stableFrames++;
   else if (conf < 0.35) stableFrames = 0;
   const target = stableFrames > 12 ? 1 : 0;   // ~0.5s of proven stability
+  if (target === 1 && shownAlpha < 0.1) beep(620, 0.12, 0.05, 940); // lock-on
   shownAlpha += (target - shownAlpha) * 0.12; // soft fade in/out
   return shownAlpha;
 }
