@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=38';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=38';
-import { classify, LOGIC_LINE } from './engine.js?v=38';
+import * as P from './pose.js?v=39';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=39';
+import { classify, LOGIC_LINE } from './engine.js?v=39';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -401,6 +401,7 @@ function renderEvidence() {
   };
   collect(walk.achMoments);
   collect(walk.kneeMoments);
+  renderSkeletonReplay();
   if (!moments.length) { card.hidden = true; return; }
   card.hidden = false;
   const x = cv.getContext('2d');
@@ -460,6 +461,56 @@ function gauge(label, val, min, max, zones, loLabel, hiLabel) {
   return `<div class="gaugebox"><div class="glabel"><span>${label}</span><b>${val}°</b></div>
     <div class="gtrack">${zoneDivs}<u style="right:calc(${pct(val)}% - 7px)"></u></div>
     <div class="gends"><span>${loLabel}</span><span>${hiLabel}</span></div></div>`;
+}
+
+// skeleton-only replay: the customer's full recorded movement as clean
+// glowing lines on dark — the "x-ray" view of their gait state
+let skelTimer = null;
+function renderSkeletonReplay() {
+  const card = $('skelCard'), cv = $('skelReplay');
+  const frames = rawLog.filter(f => f.l && f.rt != null);
+  if (frames.length < 20) { card.hidden = true; return; }
+  card.hidden = false;
+  const x = cv.getContext('2d');
+  let fi = 0;
+  clearInterval(skelTimer);
+  skelTimer = setInterval(() => {
+    const f = frames[fi];
+    const lms = f.l.map(a => ({ x: a[0], y: a[1], visibility: a[2] }));
+    x.fillStyle = '#0B1416'; x.fillRect(0, 0, cv.width, cv.height);
+    const pt = i => [(1 - lms[i].x) * cv.width, lms[i].y * cv.height];
+    x.lineCap = 'round';
+    // glowing body lines
+    x.shadowColor = '#4FE3C1'; x.shadowBlur = 10;
+    x.strokeStyle = '#4FE3C1'; x.lineWidth = 3;
+    const seg = (a, b) => {
+      if ((lms[a].visibility ?? 1) < 0.2 || (lms[b].visibility ?? 1) < 0.2) return;
+      const [ax, ay] = pt(a), [bx, by] = pt(b);
+      x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
+    };
+    seg(P.LM.L_HIP, P.LM.R_HIP);
+    seg(P.LM.R_HIP, P.LM.R_KNEE); seg(P.LM.R_KNEE, P.LM.R_ANKLE);
+    seg(P.LM.R_ANKLE, P.LM.R_HEEL); seg(P.LM.R_HEEL, P.LM.R_TOE);
+    seg(P.LM.L_HIP, P.LM.L_KNEE); seg(P.LM.L_KNEE, P.LM.L_ANKLE);
+    seg(P.LM.L_ANKLE, P.LM.L_HEEL); seg(P.LM.L_HEEL, P.LM.L_TOE);
+    x.shadowBlur = 0;
+    // heel lines + live angle
+    let maxDev = 0;
+    for (const side of ['R', 'L']) {
+      const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
+      const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
+      if ((lms[HEEL].visibility ?? 1) < 0.2) continue;
+      const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
+      x.strokeStyle = '#FFD166'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
+      maxDev = Math.max(maxDev, Math.abs(P.achillesDeviation(lms, side)));
+    }
+    x.font = '700 22px Assistant, sans-serif'; x.fillStyle = '#FFD166';
+    x.textAlign = 'left';
+    x.fillText(maxDev.toFixed(0) + '°', 14, 34);
+    $('skelCaption').textContent = 'כך המערכת רואה את התנועה שלך — הקו הצהוב הוא קו העקב';
+    fi = (fi + 1) % frames.length;
+  }, 60);
 }
 
 /* ================= WhatsApp handoff + shareable report ================= */

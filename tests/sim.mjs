@@ -131,7 +131,7 @@ const ui = () => ({ instr() {}, tag() {} });
   check('reaches RECORD', m.state === 'RECORD', `state=${m.state}`);
   // walk back and forth naturally with 6° Achilles deviation
   let t = 0;
-  while (m.state === 'RECORD' && t < 40000) {
+  while (m.state === 'RECORD' && t < 50000) {
     const cyc = (t % 8000) / 8000;                 // 8s out-and-back
     const dist = cyc < 0.5 ? 1.6 + 2.8 * cyc : 3 - 2.8 * (cyc - 0.5);
     const face = cyc < 0.5 ? 'back' : 'front';
@@ -151,7 +151,7 @@ const ui = () => ({ instr() {}, tag() {} });
   // 30% dropped frames while walking — must still complete with angles
   const m2 = new G.WalkScan({ ui: ui() });
   let t2 = 0;
-  while (!m2.done && t2 < 60000) {
+  while (!m2.done && t2 < 70000) {
     const cyc = (t2 % 8000) / 8000;
     const dist = cyc < 0.5 ? 1.6 + 2.8 * cyc : 3 - 2.8 * (cyc - 0.5);
     const p = Math.floor(t2 / 33) % 10 < 3 ? null
@@ -219,7 +219,7 @@ const ui = () => ({ instr() {}, tag() {} });
   console.log('T6 no-walk handoff');
   const m = new G.WalkScan({ ui: ui() });
   spoken.length = 0;
-  for (let i = 0; i < 1200 && !m.done; i++) await tick(m, person({ dist: 2 })); // static
+  for (let i = 0; i < 1800 && !m.done; i++) await tick(m, person({ dist: 2 })); // static
   check('recording completes even without walking', m.done, `state=${m.state}`);
   const r = m.result();
   check('result defers to expert (null angles)', r.R === null, JSON.stringify(r.R));

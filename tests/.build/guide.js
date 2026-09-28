@@ -115,8 +115,8 @@ class SightCoach {
 // countdown — no live gatekeeping that can wedge or nag. The glowing
 // overlay is an effect, not a judge; analysis runs afterward on whatever
 // was captured, and too few cycles simply hands the case to the expert.
-const RECORD_MS = 20000;
-const EXTEND_MS = 8000;
+const RECORD_MS = 30000;
+const EXTEND_MS = 10000;
 export class WalkScan {
   constructor({ ui, place = false }) {
     this.ui = ui;
@@ -147,7 +147,7 @@ export class WalkScan {
     // second chance after a low-quality capture: keep the camera rolling
     this.rec = []; this.extended = false; this.praisedHalf = false;
     this.state = 'RECORD'; this.t0 = Date.now(); this.stateSince = this.t0;
-    say('מקליט שוב עשרים שניות — לך הלוך ושוב בקצב טבעי', { force: true });
+    say('מקליט שוב חצי דקה — לך הלוך ושוב בקצב טבעי', { force: true });
   }
   frame(lms) {
     const now = Date.now();
@@ -184,7 +184,7 @@ export class WalkScan {
         if (this.sinceMs() > 4000 && speechIdle()) {
           this.state = 'RECORD'; this.t0 = now; this.stateSince = now;
           this.ui.instr('לך הלוך ושוב, טבעי');
-          say('עכשיו הסתובב ולך הלוך ושוב עד לנקודה הזו, בקצב טבעי. אני מקליט עשרים שניות', { force: true });
+          say('עכשיו הסתובב ולך הלוך ושוב עד לנקודה הזו, בקצב טבעי. אני מקליט חצי דקה', { force: true });
         }
         break;
       case 'RECORD': {
