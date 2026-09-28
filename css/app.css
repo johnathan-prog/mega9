@@ -154,3 +154,6 @@ details.small summary{cursor:pointer;color:var(--accent);font-weight:600}
 .orp-stamp{border:3px solid #0E7C66;color:#0E7C66;border-radius:12px;padding:8px 14px;font-weight:800;text-align:center;transform:rotate(-4deg);flex:none}
 .orp-stamp small{display:block;font-weight:600;font-size:10.5px}
 .orp-foot{background:#0D3B36;color:#BFD9D4;font-size:11px;text-align:center;padding:10px 14px}
+
+.orp-chainwrap{display:flex;align-items:center;gap:14px}
+.orp-anat{width:96px;flex:none;height:auto}

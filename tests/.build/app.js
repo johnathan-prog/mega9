@@ -282,6 +282,7 @@ function renderResults(profile) {
   [...box.children].forEach((el, i) => { el.style.animationDelay = (i * 0.25) + 's'; });
   $('logicLine').textContent = LOGIC_LINE;
   renderOfficialReport(profile);
+  renderSkeletonReplay();
   renderEvidence();
   animateGauges();
   $('dumpBtn').onclick = () => {
@@ -459,7 +460,8 @@ function lineAlpha(lms) {
   if (conf > 0.55) stableFrames++;
   else if (conf < 0.35) stableFrames = 0;
   const target = stableFrames > 12 ? 1 : 0;   // ~0.5s of proven stability
-  if (target === 1 && shownAlpha < 0.1) beep(620, 0.14, 0.15, 940); // lock-on
+  // scan-time audio is footstrike ticks ONLY — the lock chirp repeated
+  // on every tracking wobble and read as noise
   shownAlpha += (target - shownAlpha) * 0.12; // soft fade in/out
   return shownAlpha;
 }
@@ -693,6 +695,53 @@ $('detailsNext').onclick = () => {
   };
   prepStage(0);
 };
+
+// skeleton-only replay: the customer's full recorded movement as clean
+// glowing lines on dark — the "x-ray" view of their gait
+let skelTimer = null;
+function renderSkeletonReplay() {
+  const card = $('skelCard'), cv = $('skelReplay');
+  const frames = rawLog.filter(f => f.l && f.rt != null);
+  if (frames.length < 20) { card.hidden = true; return; }
+  card.hidden = false;
+  const x = cv.getContext('2d');
+  let fi = 0;
+  clearInterval(skelTimer);
+  skelTimer = setInterval(() => {
+    const f = frames[fi];
+    const lms = f.l.map(a => ({ x: a[0], y: a[1], visibility: a[2] }));
+    x.fillStyle = '#0B1416'; x.fillRect(0, 0, cv.width, cv.height);
+    const pt = i => [(1 - lms[i].x) * cv.width, lms[i].y * cv.height];
+    x.lineCap = 'round';
+    x.shadowColor = '#4FE3C1'; x.shadowBlur = 10;
+    x.strokeStyle = '#4FE3C1'; x.lineWidth = 3;
+    const seg = (a, b) => {
+      if ((lms[a].visibility ?? 1) < 0.2 || (lms[b].visibility ?? 1) < 0.2) return;
+      const [ax, ay] = pt(a), [bx, by] = pt(b);
+      x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke();
+    };
+    seg(P.LM.L_HIP, P.LM.R_HIP);
+    seg(P.LM.R_HIP, P.LM.R_KNEE); seg(P.LM.R_KNEE, P.LM.R_ANKLE);
+    seg(P.LM.R_ANKLE, P.LM.R_HEEL); seg(P.LM.R_HEEL, P.LM.R_TOE);
+    seg(P.LM.L_HIP, P.LM.L_KNEE); seg(P.LM.L_KNEE, P.LM.L_ANKLE);
+    seg(P.LM.L_ANKLE, P.LM.L_HEEL); seg(P.LM.L_HEEL, P.LM.L_TOE);
+    x.shadowBlur = 0;
+    let maxDev = 0;
+    for (const side of ['R', 'L']) {
+      const HEEL = side === 'R' ? P.LM.R_HEEL : P.LM.L_HEEL;
+      const KNEE = side === 'R' ? P.LM.R_KNEE : P.LM.L_KNEE;
+      if ((lms[HEEL].visibility ?? 1) < 0.2) continue;
+      const [hx, hy] = pt(HEEL), [kx, ky] = pt(KNEE);
+      x.strokeStyle = '#FFD166'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(hx, hy); x.lineTo(kx, ky); x.stroke();
+      maxDev = Math.max(maxDev, Math.abs(P.achillesDeviation(lms, side)));
+    }
+    x.font = '700 22px Assistant, sans-serif'; x.fillStyle = '#FFD166';
+    x.textAlign = 'left';
+    x.fillText(maxDev.toFixed(0) + '°', 14, 34);
+    fi = (fi + 1) % frames.length;
+  }, 60);
+}
 
 /* ================= official branded report (HTML → image) ================= */
 const FOOT_PATH = 'M50,6 C74,6 82,32 80,62 C79,86 85,100 85,122 C85,162 74,202 50,208 C26,202 15,162 15,122 C15,100 21,86 20,62 C18,32 26,6 50,6 Z';

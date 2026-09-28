@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SoleScan — סריקת הליכה והתאמת מדרסים</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Suez+One&display=swap">
-<link rel="stylesheet" href="css/app.css?v=48">
+<link rel="stylesheet" href="css/app.css?v=49">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 48</small></div>
+    <div class="brand">SoleScan<small>מדרסים בהתאמה אישית · גרסה 49</small></div>
     <div class="progress"><i id="pbar"></i></div>
     <span class="step-label" id="plabel"></span>
   </header>
@@ -165,12 +165,34 @@
 
         <div class="orp-card">
           <h3>שרשרת העומס: מכף הרגל עד הגב</h3>
-          <ol class="orp-chain">
-            <li>כף הרגל קורסת פנימה</li>
-            <li>הברך מפצה ומסתובבת</li>
-            <li>האגן נוטה ומתעייף</li>
-            <li>הגב התחתון סופג את השארית</li>
-          </ol>
+          <div class="orp-chainwrap">
+            <svg class="orp-anat" viewBox="0 0 120 300" aria-hidden="true">
+              <g stroke="#C2CFCC" stroke-width="4" fill="none" stroke-linecap="round">
+                <circle cx="60" cy="22" r="14" fill="#EDF2F1"/>
+                <line x1="60" y1="38" x2="60" y2="118"/>
+                <path d="M42,58 Q60,50 78,58 M40,70 Q60,62 80,70 M40,82 Q60,74 80,82 M42,94 Q60,86 78,94"/>
+                <line x1="60" y1="46" x2="26" y2="52"/><line x1="60" y1="46" x2="94" y2="52"/>
+                <line x1="26" y1="52" x2="20" y2="108"/><line x1="94" y1="52" x2="100" y2="108"/>
+                <path d="M40,120 Q60,112 80,120 L84,140 Q60,152 36,140 Z" fill="#EDF2F1"/>
+                <line x1="46" y1="146" x2="40" y2="206"/><line x1="74" y1="146" x2="80" y2="206"/>
+                <line x1="40" y1="212" x2="38" y2="272"/><line x1="80" y1="212" x2="82" y2="272"/>
+                <circle cx="40" cy="209" r="5" fill="#EDF2F1"/><circle cx="80" cy="209" r="5" fill="#EDF2F1"/>
+                <line x1="38" y1="276" x2="26" y2="284"/><line x1="82" y1="276" x2="94" y2="284"/>
+              </g>
+              <g font-family="Assistant,sans-serif" font-size="13" font-weight="800" text-anchor="middle">
+                <circle cx="94" cy="282" r="11" fill="#E2574C" opacity=".9"/><text x="94" y="287" fill="#fff">1</text>
+                <circle cx="82" cy="209" r="11" fill="#E2574C" opacity=".85"/><text x="82" y="214" fill="#fff">2</text>
+                <circle cx="60" cy="132" r="11" fill="#E2574C" opacity=".8"/><text x="60" y="137" fill="#fff">3</text>
+                <circle cx="60" cy="106" r="11" fill="#E2574C" opacity=".75"/><text x="60" y="111" fill="#fff">4</text>
+              </g>
+            </svg>
+            <ol class="orp-chain">
+              <li>כף הרגל קורסת פנימה</li>
+              <li>הברך מפצה ומסתובבת</li>
+              <li>האגן נוטה ומתעייף</li>
+              <li>הגב התחתון סופג את השארית</li>
+            </ol>
+          </div>
           <p class="orp-chainnote">תמיכה נכונה בקשת עוצרת את השרשרת בחוליה הראשונה.</p>
         </div>
 
@@ -182,6 +204,11 @@
         </div>
       </div>
       <div class="orp-foot">ניתוח ראשוני על בסיס סריקת הליכה ושאלון · אינו אבחנה רפואית ואינו תחליף לייעוץ רפואי</div>
+    </div>
+    <div class="card center" id="skelCard" hidden>
+      <strong>מבט השלד — התנועה המלאה שלך</strong>
+      <canvas id="skelReplay" width="300" height="400"></canvas>
+      <p class="small">כך המערכת רואה את התנועה שלך — הקו הצהוב הוא קו העקב</p>
     </div>
     <div class="explain" id="logicLine"></div>
     <button class="btn" id="shareBtn">שלח את הדוח למומחה בוואטסאפ</button>
@@ -216,6 +243,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
-<script type="module" src="js/app.js?v=48"></script>
+<script type="module" src="js/app.js?v=49"></script>
 </body>
 </html>
