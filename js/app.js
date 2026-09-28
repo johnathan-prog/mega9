@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=39';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=39';
-import { classify, LOGIC_LINE } from './engine.js?v=39';
+import * as P from './pose.js?v=40';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=40';
+import { classify, LOGIC_LINE } from './engine.js?v=40';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -187,6 +187,7 @@ async function runStage(st) {
   abortScan = false;
   try {
     await P.initPose();
+    P.initSegmenter(); // loads in the background; aura appears when ready
     ui.tag('מבקש גישה למצלמה…');
     await P.openCamera(video);
   } catch (e) {
@@ -206,15 +207,26 @@ async function runStage(st) {
   await new Promise(resolve => {
     const loop = (ts) => {
       if (abortScan) return resolve();
-      const lms = P.detect(video, ts ?? performance.now());
+      const now2 = ts ?? performance.now();
+      const lms = P.detect(video, now2);
       const drawLms = smoothForDisplay(lms);
       machine.sensor = sensor;
       updateHeightMeter(machine.state);
       logFrame(st.key, lms, machine.lastRecT);
       if (lms && machine.state === 'RECORD' && machine.lastRecT != null)
         captureSnap(video, lms, machine.lastRecT);
-      P.drawSkeleton(overlay, drawLms);
-      if (drawLms) drawLiveAngles(overlay, drawLms);
+      // layered rendering: aura always (its data is per-pixel and cannot
+      // jitter), measurement lines only while tracking is genuinely stable
+      const octx = overlay.getContext('2d');
+      octx.clearRect(0, 0, overlay.width, overlay.height);
+      drawAura(overlay, video, now2);
+      const la = lineAlpha(lms);
+      if (la > 0.02 && drawLms) {
+        octx.save(); octx.globalAlpha = la;
+        P.drawSkeleton(overlay, drawLms, { clear: false });
+        drawLiveAngles(overlay, drawLms);
+        octx.restore();
+      }
       if (machine.state === 'FIND' || machine.state === 'SYNC') drawSilhouette(overlay);
       updateDistLight(lms, machine.state);
       machine.frame(lms);
@@ -291,6 +303,78 @@ function renderResults(profile) {
   $('recSpec').innerHTML =
     `<p style="margin:0 0 8px"><strong>ימין:</strong> ${out.R.name} · <strong>שמאל:</strong> ${out.L.name}${asym ? ' — מפרט נפרד לכל רגל' : ''}</p>
      <ul style="margin:0;padding-right:18px">${[...specs].map(s => `<li>${s}</li>`).join('')}</ul>`;
+}
+
+/* ---- layer 1: body aura + scanline (per-pixel, jitter-free) ---- */
+const auraState = { maskC: null, ringC: null, lastSegAt: 0, frame: 0 };
+function drawAura(overlay, video, ts) {
+  auraState.frame++;
+  if (auraState.frame % 2 === 0 || performance.now() - auraState.lastSegAt > 120) {
+    const seg = P.segment(video, ts);
+    if (seg) {
+      auraState.lastSegAt = performance.now();
+      if (!auraState.maskC) {
+        auraState.maskC = document.createElement('canvas');
+        auraState.ringC = document.createElement('canvas');
+      }
+      const mc = auraState.maskC;
+      mc.width = seg.w; mc.height = seg.h;
+      const mx = mc.getContext('2d');
+      const img = mx.createImageData(seg.w, seg.h);
+      for (let i = 0; i < seg.data.length; i++) {
+        // selfie segmenter: category 0 = person
+        const on = seg.data[i] === 0 ? 255 : 0;
+        img.data[i * 4] = 79; img.data[i * 4 + 1] = 227; img.data[i * 4 + 2] = 193;
+        img.data[i * 4 + 3] = on;
+      }
+      mx.putImageData(img, 0, 0);
+    }
+  }
+  const mc = auraState.maskC;
+  if (!mc || !mc.width) return;
+  const rc = auraState.ringC;
+  rc.width = overlay.width; rc.height = overlay.height;
+  const rx = rc.getContext('2d');
+  // outer glow ring: blurred mask minus the sharp mask
+  rx.filter = 'blur(9px)';
+  rx.drawImage(mc, 0, 0, rc.width, rc.height);
+  rx.filter = 'none';
+  rx.globalCompositeOperation = 'destination-out';
+  rx.drawImage(mc, 0, 0, rc.width, rc.height);
+  rx.globalCompositeOperation = 'source-over';
+  const octx = overlay.getContext('2d');
+  octx.save();
+  octx.globalAlpha = 0.9;
+  octx.drawImage(rc, 0, 0);
+  // scanline sweeping the body only
+  rx.clearRect(0, 0, rc.width, rc.height);
+  rx.drawImage(mc, 0, 0, rc.width, rc.height);
+  rx.globalCompositeOperation = 'source-in';
+  const y = (performance.now() / 1800 % 1) * rc.height;
+  const grad = rx.createLinearGradient(0, y - 26, 0, y + 26);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  rx.fillStyle = grad;
+  rx.fillRect(0, y - 26, rc.width, 52);
+  rx.globalCompositeOperation = 'source-over';
+  octx.drawImage(rc, 0, 0);
+  octx.restore();
+}
+
+/* ---- layer 2 gate: lines earn their place with sustained confidence ---- */
+let stableFrames = 0, shownAlpha = 0;
+function lineAlpha(lms) {
+  let conf = 0;
+  if (lms) {
+    const ids = [P.LM.R_KNEE, P.LM.L_KNEE, P.LM.R_ANKLE, P.LM.L_ANKLE, P.LM.R_HEEL, P.LM.L_HEEL];
+    conf = ids.reduce((a, i) => a + (lms[i].visibility ?? 0), 0) / ids.length;
+  }
+  if (conf > 0.55) stableFrames++;
+  else if (conf < 0.35) stableFrames = 0;
+  const target = stableFrames > 12 ? 1 : 0;   // ~0.5s of proven stability
+  shownAlpha += (target - shownAlpha) * 0.12; // soft fade in/out
+  return shownAlpha;
 }
 
 // Display-only exponential smoothing: the drawn lines sit calmly on the
