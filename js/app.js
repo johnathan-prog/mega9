@@ -1,7 +1,7 @@
 // app.js — flow controller: questionnaire → guided scans → results → pay.
-import * as P from './pose.js?v=41';
-import { WalkScan, ArchTest, primeTTS } from './guide.js?v=41';
-import { classify, LOGIC_LINE } from './engine.js?v=41';
+import * as P from './pose.js?v=42';
+import { WalkScan, ArchTest, primeTTS } from './guide.js?v=42';
+import { classify, LOGIC_LINE } from './engine.js?v=42';
 
 const $ = id => document.getElementById(id);
 const LABELS = { intro: 'פתיחה', quiz: 'שאלון', setup: 'הכנה', scan: 'סריקה', results: 'הדוח שלך' };
@@ -222,6 +222,7 @@ async function runStage(st) {
       const octx = overlay.getContext('2d');
       octx.clearRect(0, 0, overlay.width, overlay.height);
       drawAura(overlay, video, now2);
+      drawFootFlash(overlay);
       const la = lineAlpha(lms);
       if (la > 0.02 && drawLms) {
         octx.save(); octx.globalAlpha = la;
@@ -389,12 +390,17 @@ function drawAura(overlay, video, ts) {
 /* ---- live footstrike pulse + scanner sound ---- */
 let audioCtx = null;
 function initAudio() {
-  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); }
-  catch { audioCtx = null; }
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // iOS creates the context SUSPENDED even inside a gesture — resume it
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    beep(880, 0.03, 0.001); // silent kick so the pipeline is warm
+  } catch { audioCtx = null; }
 }
 function beep(freq, dur, gainV, freq2) {
   if (!audioCtx) return;
   try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.frequency.value = freq;
     if (freq2) o.frequency.exponentialRampToValueAtTime(freq2, audioCtx.currentTime + dur);
@@ -405,6 +411,7 @@ function beep(freq, dur, gainV, freq2) {
   } catch { /* audio best-effort */ }
 }
 const pulse = { smooth: null, dir: 0, lastAt: 0 };
+let footFlash = null; // {x, y, at} — burst drawn on the striking heel
 function feedStepPulse(lms) {
   if (!lms) return;
   const scl = P.legScale(lms);
@@ -414,15 +421,36 @@ function feedStepPulse(lms) {
   if (pulse.smooth == null) { pulse.smooth = sep; return; }
   const prev = pulse.smooth;
   pulse.smooth = prev * 0.55 + sep * 0.45;
-  if (pulse.smooth > prev + 0.006) pulse.dir = 1;
-  else if (pulse.smooth < prev - 0.006 && pulse.dir === 1) {
-    if (prev > 0.18 && Date.now() - pulse.lastAt > 350) {
+  if (pulse.smooth > prev + 0.004) pulse.dir = 1;
+  else if (pulse.smooth < prev - 0.004 && pulse.dir === 1) {
+    if (prev > 0.13 && Date.now() - pulse.lastAt > 300) {
       pulse.lastAt = Date.now();
-      stepFlash = 1;                 // aura flash on the footstrike
-      beep(1250, 0.05, 0.06);       // scanner tick
+      // the landing (front) foot sits lower in the frame — flash ITS heel
+      const rh = lms[P.LM.R_HEEL], lh = lms[P.LM.L_HEEL];
+      const heel = rh.y >= lh.y ? rh : lh;
+      footFlash = { x: heel.x, y: heel.y, at: performance.now() };
+      stepFlash = 0.5;               // gentle aura bump
+      beep(1250, 0.06, 0.18);        // scanner tick
     }
     pulse.dir = -1;
   }
+}
+// expanding light ring on the heel that just struck the ground
+function drawFootFlash(canvas) {
+  if (!footFlash) return;
+  const age = performance.now() - footFlash.at;
+  if (age > 380) { footFlash = null; return; }
+  const x = canvas.getContext('2d');
+  const cx = footFlash.x * canvas.width, cy = footFlash.y * canvas.height;
+  const p = age / 380;
+  const r = 12 + p * 46;
+  x.save();
+  x.globalAlpha = (1 - p) * 0.9;
+  x.strokeStyle = '#FFD166'; x.lineWidth = 4 * (1 - p) + 1;
+  x.shadowColor = '#FFD166'; x.shadowBlur = 16;
+  x.beginPath(); x.arc(cx, cy, r, 0, 7); x.stroke();
+  x.beginPath(); x.arc(cx, cy, r * 0.55, 0, 7); x.stroke();
+  x.restore();
 }
 
 /* ---- layer 2 gate: lines earn their place with sustained confidence ---- */
@@ -436,7 +464,7 @@ function lineAlpha(lms) {
   if (conf > 0.55) stableFrames++;
   else if (conf < 0.35) stableFrames = 0;
   const target = stableFrames > 12 ? 1 : 0;   // ~0.5s of proven stability
-  if (target === 1 && shownAlpha < 0.1) beep(620, 0.12, 0.05, 940); // lock-on
+  if (target === 1 && shownAlpha < 0.1) beep(620, 0.14, 0.15, 940); // lock-on
   shownAlpha += (target - shownAlpha) * 0.12; // soft fade in/out
   return shownAlpha;
 }
